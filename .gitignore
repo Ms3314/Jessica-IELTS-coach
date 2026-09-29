@@ -1,0 +1,6 @@
+.env
+.venv
+.vscode
+__pycache__
+output*
+tts_out
