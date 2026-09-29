@@ -1,20 +1,15 @@
-import os
 import uuid
 
-from dotenv import load_dotenv
-
 from langchain.agents import create_agent
+from langchain_core.messages import AIMessageChunk
 from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.memory import InMemorySaver
 
-load_dotenv()
-
-# change model via .env -> OPENAI_MODEL=...
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+from .config import OPENAI_MODEL
 
 # gpt-5.6 needs the Responses API for function tools (chat/completions rejects them)
-model = ChatOpenAI(model=DEFAULT_MODEL, use_responses_api=True)
+model = ChatOpenAI(model=OPENAI_MODEL, use_responses_api=True)
 
 search = TavilySearch(
     max_results=3,
@@ -47,50 +42,36 @@ agent = create_agent(
 _config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
 
-def _extract_text(content) -> str:
-    """Pull plain text out of a message content (str or list of blocks)."""
+def _text_deltas(content):
+    """Yield text-only deltas from an AIMessageChunk content (str or block list).
+
+    gpt-5.6-luna via the Responses API emits reasoning blocks alongside text
+    blocks; only 'text' blocks should ever reach the TTS.
+    """
     if isinstance(content, str):
-        return content.strip()
+        if content:
+            yield content
+        return
     if isinstance(content, list):
-        parts = []
         for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
-        return " ".join(p for p in parts if p).strip()
-    return str(content)
-
-
-def agent_reply(user_text: str) -> str:
-    """Send a (already cleaned) user message to the agent, return its reply text."""
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": user_text}]},
-        config=_config,
-    )
-    return _extract_text(result["messages"][-1].content)
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    yield text
 
 
 def agent_reply_stream(user_text: str):
     """Send a user message to the agent, yield text deltas as they stream in.
 
-    Filters out reasoning blocks (gpt-5.6-luna emits those) and tool calls.
-    Only yields actual text deltas for TTS.
+    Only AIMessageChunk text is yielded. ToolMessage results (raw Tavily JSON)
+    and HumanMessage must never be spoken — they also have `.content`, so an
+    isinstance check on the chunk type is the guard.
     """
     for chunk, metadata in agent.stream(
         {"messages": [{"role": "user", "content": user_text}]},
         config=_config,
         stream_mode="messages",
     ):
-        # AIMessageChunk from Responses API has content as list of blocks
-        if not hasattr(chunk, "content"):
+        if not isinstance(chunk, AIMessageChunk):
             continue
-        content = chunk.content
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text", "")
-                    if text:
-                        yield text
-        elif isinstance(content, str) and content:
-            yield content
+        yield from _text_deltas(chunk.content)
