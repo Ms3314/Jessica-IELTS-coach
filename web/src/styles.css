@@ -1,0 +1,183 @@
+:root {
+  --bg: #04050a;
+  --panel: #0b0d14;
+  --panel-2: #141824;
+  --text: #eef1f8;
+  --muted: #7d8598;
+  --accent: #5b8def;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: radial-gradient(1100px 760px at 70% -10%, #101528 0%, var(--bg) 62%);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  gap: 16px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0.5px;
+}
+.topbar .subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0;
+}
+
+/* Aura canvas — the voice visual, sized to fit the stage */
+.aura-canvas {
+  width: min(560px, 92vw, 66vh);
+  aspect-ratio: 1 / 1;
+  pointer-events: none;
+}
+
+.error-banner {
+  position: absolute;
+  bottom: -4px;
+  background: #ef575733;
+  border: 1px solid #ef5757;
+  color: #ffd9d9;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* grey subtitle of what the user just said (voice-only UI) */
+.caption {
+  min-height: 26px;
+  margin: 0;
+  padding: 0 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+  animation: pop 0.18s ease-out;
+}
+.caption.empty {
+  animation: none;
+  opacity: 0;
+}
+
+@keyframes pop {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+  flex: 1;
+}
+.status .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.status.listening .dot {
+  background: #39d98a;
+  box-shadow: 0 0 0 4px #39d98a33;
+}
+.status.thinking .dot,
+.status.transcribing .dot {
+  background: #f2a154;
+}
+.status.speaking .dot {
+  background: #f06ea9;
+}
+.status.error .dot {
+  background: #ef5757;
+}
+/* brief silent cue while the user pauses mid-thought */
+.status.paused {
+  color: #9fe8c0;
+  font-style: italic;
+}
+.status.paused .dot {
+  background: #39d98a;
+  box-shadow: 0 0 0 4px #39d98a33;
+  animation: pause-pulse 1.1s ease-in-out infinite;
+}
+@keyframes pause-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.25);
+  }
+}
+
+.btn {
+  border: 1px solid #232a3d;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.15s ease;
+}
+.btn:hover:not(:disabled) {
+  background: #1b2130;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.btn.primary:hover:not(:disabled) {
+  background: #6f9bf5;
+}

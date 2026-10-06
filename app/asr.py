@@ -1,6 +1,8 @@
+import sys
 import numpy as np
 import sounddevice as sd
 import mlx_whisper
+from app.vad import is_speech, speech_probability, CHUNK_SIZE
 
 
 MODEL = "mlx-community/whisper-large-v3-turbo"
@@ -19,6 +21,37 @@ MIN_SPEECH_S = 0.3       # require this much actual speech so a cough doesn't tr
 
 def _rms(frame) -> float:
     return float(np.sqrt(np.mean(np.square(frame.astype(np.float32)))))
+
+
+def _visualize_audio(frame, vad_prob, is_speaking):
+    """Show a real-time audio level bar with speech indicator.
+    
+    Updates in-place on the same line for smooth animation.
+    """
+    # Calculate audio level (0-40 chars wide)
+    rms = _rms(frame)
+    # Normalize: 0-5000 RMS maps to 0-40 bars
+    level = min(40, int(rms / 125))
+    
+    # Build the visualization
+    bar = "█" * level + "░" * (40 - level)
+    
+    # Speech indicator
+    if is_speaking:
+        indicator = "🎤"
+        color = "\033[92m"  # green
+    elif vad_prob > 0.3:
+        indicator = "👂"
+        color = "\033[93m"  # yellow
+    else:
+        indicator = "⏺"
+        color = "\033[90m"  # gray
+    
+    reset = "\033[0m"
+    
+    # Print in-place (carriage return, no newline)
+    sys.stdout.write(f"\r{color}{indicator}{reset} [{bar}] {vad_prob:.2f}")
+    sys.stdout.flush()
 
 
 class ReusableInputStream:
@@ -78,6 +111,9 @@ def record_until_silence(open_stream):
             data, _ = stream.read(frame_len)
             frames.append(data.copy())
             rms_vals.append(_rms(data))
+            # Show visualization during calibration
+            vad_prob = speech_probability(data[:CHUNK_SIZE].flatten().astype(np.float32) / 32768.0)
+            _visualize_audio(data, vad_prob, False)
 
         noise_floor = max(rms_vals)
         if noise_floor > 2 * MIN_THRESHOLD:
@@ -88,22 +124,33 @@ def record_until_silence(open_stream):
             threshold = min(MAX_THRESHOLD, max(MIN_THRESHOLD, noise_floor * NOISE_FACTOR))
 
         silent = 0
+        vad_flags = []  # Track VAD speech detection per frame
         while len(frames) < max_frames:
             data, _ = stream.read(frame_len)
             frames.append(data.copy())
             rms_vals.append(_rms(data))
 
-            if rms_vals[-1] > threshold:
+            # Use VAD for speech detection
+            vad_prob = speech_probability(data[:CHUNK_SIZE].flatten().astype(np.float32) / 32768.0)
+            is_speaking = vad_prob > 0.5
+            vad_flags.append(is_speaking)
+
+            if is_speaking:
                 silent = 0
             else:
                 silent += 1
-                if silent >= silence_limit and any(
-                    r > threshold for r in rms_vals
-                ):
+                if silent >= silence_limit and any(vad_flags):
                     break  # speech happened, then silence -> done
 
-    speech_flags = [r > threshold for r in rms_vals]
-    speech_frames = sum(speech_flags)
+            # Show real-time visualization
+            _visualize_audio(data, vad_prob, is_speaking)
+
+    # Clear the visualization line
+    sys.stdout.write("\r" + " " * 60 + "\r")
+    sys.stdout.flush()
+
+    # Count speech frames using VAD (more accurate than RMS)
+    speech_frames = sum(vad_flags)
 
     # not enough real speech: a blip/cough isn't worth sending to Whisper
     # (it can hallucinate text out of pure noise)
@@ -111,10 +158,32 @@ def record_until_silence(open_stream):
         return None
 
     # trim leading silence but keep a little pre-roll before the first speech frame
-    first = next(i for i, s in enumerate(speech_flags) if s)
+    first = next(i for i, s in enumerate(vad_flags) if s)
     start = max(0, first - pre_roll)
     # reshape(-1): sounddevice frames are (n, channels) — whisper needs flat 1D audio
     return np.concatenate(frames[start:]).reshape(-1)
+
+
+def transcribe(audio: np.ndarray):
+    """Run Whisper on a 16 kHz mono int16 clip and return the text (or None).
+
+    Shared by both frontends: the terminal records from the mic, the web
+    frontend receives the clip over a WebSocket, but both end up here.
+    """
+    if audio is None or len(audio) == 0:
+        return None
+
+    # pass samples straight to Whisper as float32 [-1, 1] — no temp WAV,
+    # no ffmpeg decode subprocess (mlx_whisper accepts numpy arrays directly)
+    result = mlx_whisper.transcribe(
+        audio.astype(np.float32) / 32768.0,
+        path_or_hf_repo=MODEL,
+        language="en",
+        temperature=0,
+    )
+
+    text = result["text"].strip()
+    return text or None
 
 
 def asr():
@@ -128,16 +197,7 @@ def asr():
 
     print(f"Processing Audio ... (Local Whisper) [{len(audio) / SAMPLE_RATE:.1f}s of audio]")
 
-    # pass samples straight to Whisper as float32 [-1, 1] — no temp WAV,
-    # no ffmpeg decode subprocess (mlx_whisper accepts numpy arrays directly)
-    result = mlx_whisper.transcribe(
-        audio.astype(np.float32) / 32768.0,
-        path_or_hf_repo=MODEL,
-        language="en",
-        temperature=0,
-    )
-
-    text = result["text"].strip()
+    text = transcribe(audio)
 
     if text:
         print("You said:", text)

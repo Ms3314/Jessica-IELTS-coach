@@ -1,0 +1,9 @@
+# FastAPI CLI configuration.
+#
+# Pins the web entrypoint so `python -m fastapi dev` (no arguments) runs the
+# right module instead of auto-discovering main.py — the terminal script, which
+# is NOT a FastAPI app and produces:
+#   "Could not find FastAPI app in module, try using --app"
+# See analysis in the session that diagnosed that error.
+[tool.fastapi]
+entrypoint = "server:app"

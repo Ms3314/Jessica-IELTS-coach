@@ -47,6 +47,35 @@ def test_tail_is_flushed():
     assert out == ["One sentence.", "And a trailing fragment"], out
 
 
+def test_speak_stream_cancel_drops_reply():
+    # a barge-in sets the cancel event: nothing may reach the sink
+    import threading
+    from app.tts import speak_stream
+
+    class RecordingSink:
+        def __init__(self):
+            self.writes = 0
+            self.drained = False
+
+        def write(self, _audio):
+            self.writes += 1
+
+        def drain(self):
+            self.drained = True
+
+    cancel = threading.Event()
+    cancel.set()
+    sink = RecordingSink()
+    speak_stream(
+        iter(["One. Two. Three."]),
+        sink=sink,
+        verbose=False,
+        cancel=cancel,
+    )
+    assert sink.writes == 0, f"cancelled reply must be silent, got {sink.writes} writes"
+    assert sink.drained is False, "cancelled reply must not drain/wait"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

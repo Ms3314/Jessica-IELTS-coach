@@ -10,7 +10,25 @@ pipeline = KPipeline(repo_id="hexgrad/Kokoro-82M", lang_code="a")
 
 SAMPLE_RATE = 24000
 
-# --- persistent output stream ------------------------------------------------
+# --- pluggable output sink --------------------------------------------------
+# The terminal writes samples straight to the speakers (LocalSink). The web
+# frontend instead forwards the raw PCM bytes over the WebSocket (WebSocketSink,
+# defined in app/io.py). Decoupling playback from synthesis lets the same
+# streaming TTS code serve both frontends.
+
+
+class Sink:
+    """Consumes synthesized TTS audio (float32, 24 kHz, mono ndarrays)."""
+
+    def write(self, audio: np.ndarray):
+        raise NotImplementedError
+
+    def drain(self):
+        """Block until everything written has actually finished playing."""
+        raise NotImplementedError
+
+
+# --- persistent local output stream -----------------------------------------
 # sd.play/sd.wait opened+closed a PortAudio stream per audio chunk (~10-16 per
 # turn). After a few turns the repeated open/close cycle wedged macOS CoreAudio
 # and the next mic open hung forever at 'Speak something...'. We now keep ONE
@@ -34,10 +52,10 @@ def _get_out_stream():
         return _out_stream
 
 
-def _write_audio(audio):
-    """Buffer one chunk of samples for playback; update the drain ledger."""
+def _write_local(audio):
+    """Buffer one chunk of samples for local playback; update the drain ledger."""
     global _tail_end
-    audio = np.asarray(audio, dtype="float32").reshape(-1, 1)
+    audio = np.asarray(audio, dtype=np.float32).reshape(-1, 1)
     stream = _get_out_stream()
     with _out_lock:
         stream.write(audio)
@@ -46,7 +64,7 @@ def _write_audio(audio):
         _tail_end = max(time.monotonic(), _tail_end) + len(audio) / SAMPLE_RATE
 
 
-def _drain():
+def _drain_local():
     """Block until everything written has actually finished playing."""
     with _out_lock:
         wait = _tail_end - time.monotonic()
@@ -54,7 +72,20 @@ def _drain():
         time.sleep(wait)
 
 
-# --- sentence splitting ------------------------------------------------------
+class LocalSink(Sink):
+    """Default sink: plays through the host speakers (macOS)."""
+
+    def write(self, audio):
+        _write_local(audio)
+
+    def drain(self):
+        _drain_local()
+
+
+_default_sink = LocalSink()
+
+
+# --- sentence splitting -----------------------------------------------------
 
 ABBR = {"mr", "mrs", "ms", "dr", "vs", "st", "sr", "jr", "etc", "e.g", "i.e"}
 
@@ -103,26 +134,44 @@ def _sentence_iter(deltas):
 
 # --- playback ----------------------------------------------------------------
 
-def _play(text: str, voice: str):
-    """Synthesize one piece of text and buffer it for playback (non-blocking)."""
+def _play(text: str, voice: str, sink: Sink):
+    """Synthesize one piece of text and hand the samples to the sink."""
     for _i, _gs, audio in pipeline(text, voice=voice):
-        _write_audio(audio)
+        sink.write(audio)
 
 
-def speak(text, voice="af_heart"):
+def speak(text, voice="af_heart", sink: Sink = None):
     """Speak a fixed string, blocking until it has finished playing."""
+    sink = sink or _default_sink
     if text:
-        _play(text, voice)
-        _drain()
+        _play(text, voice, sink)
+        sink.drain()
 
 
-def speak_stream(text_stream, voice="af_heart", verbose=True):
+def speak_stream(
+    text_stream,
+    voice="af_heart",
+    sink: Sink = None,
+    verbose=True,
+    on_sentence=None,
+    cancel: threading.Event = None,
+):
     """Speak sentences as they stream in; synthesis overlaps generation.
 
     text_stream: iterable of text deltas (from agent_reply_stream).
-    Blocks until every sentence has finished playing.
+    sink: where synthesized audio goes (LocalSink for terminal, WebSocketSink
+          for the web frontend).
+    on_sentence: optional callback(sentence) fired as each sentence is queued —
+                 the web frontend uses it to stream the transcript to the browser.
+    cancel: optional Event; when set (the user barged in), the rest of the
+            reply is dropped and this returns as soon as possible.
+    Blocks until every sentence has finished playing (or cancellation).
     """
+    sink = sink or _default_sink
     q = queue.Queue(maxsize=3)  # backpressure: don't synth the whole reply at once
+
+    def cancelled() -> bool:
+        return cancel is not None and cancel.is_set()
 
     def worker():
         while True:
@@ -130,9 +179,13 @@ def speak_stream(text_stream, voice="af_heart", verbose=True):
             try:
                 if sentence is None:
                     return
+                if cancelled():
+                    continue  # a barge-in dropped the rest of the reply
                 if verbose:
                     print("  [tts]", sentence)
-                _play(sentence, voice)
+                if on_sentence:
+                    on_sentence(sentence)
+                _play(sentence, voice, sink)
             except Exception as e:
                 print("tts error:", e)
             finally:
@@ -144,9 +197,12 @@ def speak_stream(text_stream, voice="af_heart", verbose=True):
     # get its sentinel or it blocks forever on q.get()
     try:
         for sentence in _sentence_iter(deltas=text_stream):
+            if cancelled():
+                break
             q.put(sentence)
     finally:
         q.put(None)
 
     q.join()  # wait until all sentences are synthesized and buffered
-    _drain()  # ...and until the audio tail has actually played out
+    if not cancelled():
+        sink.drain()  # ...and until the audio tail has actually played out

@@ -4,3 +4,5 @@
 __pycache__
 output*
 tts_out
+web/node_modules/
+web/dist/

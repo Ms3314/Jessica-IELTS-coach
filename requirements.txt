@@ -125,6 +125,7 @@ thinc==8.3.13
 tiktoken==0.14.0
 tokenizers==0.23.2
 torch==2.14.0
+torchaudio==2.11.0
 tqdm==4.70.1
 transformers==5.17.0
 truststore==0.10.4
@@ -141,3 +142,7 @@ wrapt==2.5.0
 xxhash==4.0.1
 yarl==1.25.1
 zstandard==0.25.0
+
+# --- web server (FastAPI + uvicorn) ---
+fastapi==0.142.2
+uvicorn==0.54.0

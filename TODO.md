@@ -198,6 +198,47 @@ parent, so the app works no matter which directory it's launched from.
 
 ---
 
+## 14. Add Silero VAD for voice activity detection (app/vad.py)
+
+**Why:** The current RMS-energy threshold in asr.py triggers on keyboard taps,
+coughs, background noise — anything loud. A neural VAD model understands what
+speech actually sounds like, giving far fewer false triggers and more precise
+speech/silence boundaries.
+
+This is the foundation for Phase 2 (streaming STT) and Phase 3 (interruption
+handling / barge-in).
+
+**Implementation:**
+- New module `app/vad.py` wraps Silero VAD via torch hub
+- Model loads once at startup (like Whisper warm-load)
+- Exposes `is_speech(chunk) -> bool` and `speech_probability(chunk) -> float`
+- Requires exactly 512-sample chunks at 16kHz (32ms each)
+- Runs on CPU in ~1ms per chunk — negligible overhead
+- Added `torchaudio==2.11.0` to requirements.txt
+
+**Status:** [x] done — 8 vad tests pass, model loads and classifies correctly
+
+---
+
+## 15. Remove Groq cleanup step
+
+**Why:** The cleanup step added ~200-500ms latency (network round-trip to Groq API)
+for marginal benefit. With Silero VAD providing better speech detection and Whisper
+large-v3-turbo being quite accurate, the raw transcripts are clean enough to send
+directly to the agent. Removing this step reduces latency and simplifies the pipeline.
+
+**Changes:**
+- Removed `from app.cleanup import clean_message` from main.py
+- Removed the cleanup call and "[unclear]" check from the main loop
+- Updated pipeline comment and error message
+- Removed GROQ_MODEL from config.py
+- Updated README.md pipeline description, project structure, and .env example
+- cleanup.py file still exists but is no longer used (can be deleted manually)
+
+**Status:** [x] done — pipeline is now: mic → Whisper → agent → TTS
+
+---
+
 ## Verification plan
 
 - [x] Sentence splitter: ellipsis / abbreviations / decimals cases
@@ -205,3 +246,5 @@ parent, so the app works no matter which directory it's launched from.
 - [x] Streaming agent with a forced Tavily search: no JSON leaks into yielded text
 - [x] Whisper accepts numpy array (no ffmpeg in path)
 - [x] Full imports + one short spoken streaming reply
+- [x] Silero VAD: silence/noise rejected, accepts various dtypes, 8 tests pass
+- [x] Groq cleanup removed: pipeline runs without cleanup step

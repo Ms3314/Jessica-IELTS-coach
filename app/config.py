@@ -21,6 +21,3 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 # --- agent (main brain) ------------------------------------------------------
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-
-# --- cleanup (STT text bettering) ---------------------------------------------
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
