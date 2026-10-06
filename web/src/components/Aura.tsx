@@ -5,26 +5,29 @@ import type { EngineState } from "../lib/useVoice";
 interface Props {
   engineRef: RefObject<AudioEngine | null>;
   state: EngineState;
+  color: string; // hex colour for this session
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  const bigint = parseInt(clean, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return [r, g, b];
 }
 
 // A LiveKit-Aura-style voice visual, recreated locally with canvas 2D: a
 // glowing core plus three organically wobbling rings whose radius, speed, and
-// brightness follow the live mic/TTS levels and the engine state. (The real
-// LiveKit component needs a LiveKit room; we don't.)
-
-const COLORS: Record<EngineState, [number, number, number]> = {
-  idle: [91, 141, 239],
-  listening: [57, 217, 138],
-  transcribing: [242, 193, 78],
-  thinking: [242, 161, 84],
-  speaking: [240, 110, 169],
-  error: [239, 87, 87],
-};
-
-export default function Aura({ engineRef, state }: Props) {
+// brightness follow the live mic/TTS levels. The colour is constant per
+// session (set by the user in the sidebar) instead of flipping between user-
+// turn and AI-turn hues.
+export default function Aura({ engineRef, state, color }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const colorRef = useRef(hexToRgb(color));
+  colorRef.current = hexToRgb(color);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -36,11 +39,7 @@ export default function Aura({ engineRef, state }: Props) {
 
     let raf = 0;
     let level = 0.1;
-    let color: [number, number, number] = [
-      COLORS.idle[0],
-      COLORS.idle[1],
-      COLORS.idle[2],
-    ];
+    let currentColor: [number, number, number] = [colorRef.current[0], colorRef.current[1], colorRef.current[2]];
     const started = performance.now();
 
     const resize = () => {
@@ -57,7 +56,6 @@ export default function Aura({ engineRef, state }: Props) {
       const s = stateRef.current;
       const t = ((now - started) / 1000) * (reduceMotion ? 0.25 : 1);
 
-      // Target intensity from state + live audio level.
       const mic = engine?.mic ?? 0;
       const mouth = engine?.mouth ?? 0;
       let target: number;
@@ -66,7 +64,7 @@ export default function Aura({ engineRef, state }: Props) {
           target = 0.25 + mic * 0.95;
           break;
         case "speaking":
-          target = 0.32 + mouth * 0.9;
+          target = 0.35 + mouth * 1.15;
           break;
         case "thinking":
         case "transcribing":
@@ -78,14 +76,14 @@ export default function Aura({ engineRef, state }: Props) {
         default:
           target = 0.1 + 0.05 * Math.sin(t * 1.1);
       }
-      level += (target - level) * 0.075;
+      level += (target - level) * 0.12;
 
-      // Smooth color between states.
-      const c = COLORS[s];
-      color = [
-        color[0] + (c[0] - color[0]) * 0.06,
-        color[1] + (c[1] - color[1]) * 0.06,
-        color[2] + (c[2] - color[2]) * 0.06,
+      // Smoothly blend toward the session colour (instant on first frame).
+      const c = colorRef.current;
+      currentColor = [
+        currentColor[0] + (c[0] - currentColor[0]) * 0.06,
+        currentColor[1] + (c[1] - currentColor[1]) * 0.06,
+        currentColor[2] + (c[2] - currentColor[2]) * 0.06,
       ];
 
       const dpr = window.devicePixelRatio || 1;
@@ -96,14 +94,14 @@ export default function Aura({ engineRef, state }: Props) {
 
       const cx = w / 2;
       const cy = h / 2;
-      const base = Math.min(w, h) * 0.155; // core radius
-      const rgb = `${Math.round(color[0])}, ${Math.round(color[1])}, ${Math.round(
-        color[2]
-      )}`;
+      const base = Math.min(w, h) * 0.155;
+      const motion = t * (1 + level * 1.1);
+      const rgb = `${Math.round(currentColor[0])}, ${Math.round(
+        currentColor[1]
+      )}, ${Math.round(currentColor[2])}`;
 
       ctx.globalCompositeOperation = "lighter";
 
-      // Broad, very soft ambient glow.
       const glowR = base * (2.1 + level * 0.45);
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
       glow.addColorStop(0, `rgba(${rgb}, ${0.06 + level * 0.08})`);
@@ -114,7 +112,6 @@ export default function Aura({ engineRef, state }: Props) {
       ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Glowing core.
       const coreR = base * (1.2 + level * 0.45);
       const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
       core.addColorStop(0, `rgba(${rgb}, ${0.32 + level * 0.38})`);
@@ -125,7 +122,6 @@ export default function Aura({ engineRef, state }: Props) {
       ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Bright inner rim.
       ctx.beginPath();
       ctx.arc(cx, cy, base * (0.9 + level * 0.14), 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(${rgb}, ${0.35 + level * 0.4})`;
@@ -135,7 +131,6 @@ export default function Aura({ engineRef, state }: Props) {
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Organically wobbling glow rings.
       const ring = (
         radius: number,
         amp: number,
@@ -149,9 +144,9 @@ export default function Aura({ engineRef, state }: Props) {
         for (let i = 0; i <= N; i++) {
           const a = (i / N) * Math.PI * 2;
           const wob =
-            Math.sin(a * 3 + t * speed + phase) * amp +
-            Math.sin(a * 5 - t * speed * 0.7 + phase * 1.7) * amp * 0.6 +
-            Math.sin(a * 8 + t * speed * 1.4) * amp * 0.35;
+            Math.sin(a * 3 + motion * speed + phase) * amp +
+            Math.sin(a * 5 - motion * speed * 0.7 + phase * 1.7) * amp * 0.6 +
+            Math.sin(a * 8 + motion * speed * 1.4) * amp * 0.35;
           const r = radius + wob * (0.5 + level);
           const x = cx + Math.cos(a) * r;
           const y = cy + Math.sin(a) * r;
@@ -167,9 +162,9 @@ export default function Aura({ engineRef, state }: Props) {
         ctx.shadowBlur = 0;
       };
 
-      ring(base * (1.55 + level * 0.3), base * (0.06 + level * 0.09), 0.9, 0, 2.2, 0.45);
-      ring(base * (1.95 + level * 0.4), base * (0.08 + level * 0.11), 0.6, 2.1, 1.5, 0.26);
-      ring(base * (2.3 + level * 0.45), base * (0.1 + level * 0.13), 0.4, 4.2, 1.0, 0.14);
+      ring(base * (1.55 + level * 0.5), base * (0.06 + level * 0.16), 0.9, 0, 2.2, 0.45);
+      ring(base * (1.9 + level * 0.6), base * (0.075 + level * 0.18), 0.6, 2.1, 1.5, 0.26);
+      ring(base * (2.2 + level * 0.55), base * (0.09 + level * 0.2), 0.4, 4.2, 1.0, 0.14);
 
       raf = requestAnimationFrame(tick);
     };

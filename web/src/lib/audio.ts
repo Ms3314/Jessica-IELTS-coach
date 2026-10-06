@@ -23,7 +23,7 @@ export class AudioEngine {
   private levelGen = 0; // invalidates old rAF level loops after stop()/init()
 
   private ttsQueue: Float32Array[] = [];
-  private ttsPlaying = false;
+  ttsPlaying = false;
   private currentSource: AudioBufferSourceNode | null = null;
 
   // Live levels, updated every animation frame, read by the avatar.

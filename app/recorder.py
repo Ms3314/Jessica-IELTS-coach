@@ -13,7 +13,7 @@ import logging
 import numpy as np
 
 from app.io import BACKFILL
-from app.vad import speech_probability, CHUNK_SIZE, SAMPLE_RATE as VAD_SR
+from app.vad import speech_probability, CHUNK_SIZE
 
 logger = logging.getLogger("speakIelts.recorder")
 
@@ -21,14 +21,14 @@ logger = logging.getLogger("speakIelts.recorder")
 SAMPLE_RATE = 16000
 FRAME_MS = 100            # process audio in 100 ms frames
 BACKFILL_SILENCE_S = 1.5  # first pause: notify the UI, keep listening
-FINAL_SILENCE_S = 3.0     # second pause: user is done, finalize the clip
+FINAL_SILENCE_S = 2.5     # second pause: finalize the clip (stitching recovers)
 MIN_SPEECH_S = 0.3        # require this much real speech (a cough isn't speech)
 MAX_RECORD_S = 15.0       # safety cap so a noisy room can't record forever
 PRE_ROLL_S = 0.3          # keep this much audio before speech started
 
 FRAME_LEN = int(SAMPLE_RATE * FRAME_MS / 1000)                  # 1600 samples
 BACKFILL_SILENCE = int(BACKFILL_SILENCE_S * 1000 / FRAME_MS)    # 15 frames
-FINAL_SILENCE = int(FINAL_SILENCE_S * 1000 / FRAME_MS)          # 30 frames
+FINAL_SILENCE = int(FINAL_SILENCE_S * 1000 / FRAME_MS)          # 25 frames
 MIN_SPEECH = int(MIN_SPEECH_S * 1000 / FRAME_MS)                # 3 frames
 MAX_FRAMES = int(MAX_RECORD_S * 1000 / FRAME_MS)                # 150 frames
 PRE_ROLL = int(PRE_ROLL_S * 1000 / FRAME_MS)                    # 3 frames

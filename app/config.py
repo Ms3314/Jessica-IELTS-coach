@@ -1,13 +1,8 @@
-"""Shared configuration for TalkingAngela.
+"""Shared configuration for the app.
 
-Loads .env from the project root exactly once (no matter which submodule
-is imported first) and exposes the settings the other modules need.
-
-Previously each module called load_dotenv() on its own — which worked only
-because they all sat next to .env in the project root. With the package
-layout, module files live in app/, so the .env path is resolved
-relative to the package parent instead of the CWD (which changes if you
-launch the app from elsewhere).
+Loads .env from the project root exactly once and exposes the settings
+other modules need. Resolving the path from this file (rather than the CWD)
+means the app works no matter where it is launched from.
 """
 import os
 from pathlib import Path
@@ -16,7 +11,6 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# explicit path: works no matter where the app is launched from
 load_dotenv(PROJECT_ROOT / ".env")
 
 # --- agent (main brain) ------------------------------------------------------

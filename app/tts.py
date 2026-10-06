@@ -13,19 +13,7 @@ SAMPLE_RATE = 24000
 # --- pluggable output sink --------------------------------------------------
 # The terminal writes samples straight to the speakers (LocalSink). The web
 # frontend instead forwards the raw PCM bytes over the WebSocket (WebSocketSink,
-# defined in app/io.py). Decoupling playback from synthesis lets the same
-# streaming TTS code serve both frontends.
-
-
-class Sink:
-    """Consumes synthesized TTS audio (float32, 24 kHz, mono ndarrays)."""
-
-    def write(self, audio: np.ndarray):
-        raise NotImplementedError
-
-    def drain(self):
-        """Block until everything written has actually finished playing."""
-        raise NotImplementedError
+# defined in app/io.py). Both just provide write(audio) / drain().
 
 
 # --- persistent local output stream -----------------------------------------
@@ -72,7 +60,7 @@ def _drain_local():
         time.sleep(wait)
 
 
-class LocalSink(Sink):
+class LocalSink:
     """Default sink: plays through the host speakers (macOS)."""
 
     def write(self, audio):
@@ -134,13 +122,13 @@ def _sentence_iter(deltas):
 
 # --- playback ----------------------------------------------------------------
 
-def _play(text: str, voice: str, sink: Sink):
+def _play(text: str, voice: str, sink):
     """Synthesize one piece of text and hand the samples to the sink."""
     for _i, _gs, audio in pipeline(text, voice=voice):
         sink.write(audio)
 
 
-def speak(text, voice="af_heart", sink: Sink = None):
+def speak(text, voice="af_heart", sink=None):
     """Speak a fixed string, blocking until it has finished playing."""
     sink = sink or _default_sink
     if text:
@@ -151,7 +139,7 @@ def speak(text, voice="af_heart", sink: Sink = None):
 def speak_stream(
     text_stream,
     voice="af_heart",
-    sink: Sink = None,
+    sink=None,
     verbose=True,
     on_sentence=None,
     cancel: threading.Event = None,
@@ -166,6 +154,9 @@ def speak_stream(
     cancel: optional Event; when set (the user barged in), the rest of the
             reply is dropped and this returns as soon as possible.
     Blocks until every sentence has finished playing (or cancellation).
+    Returns True when the reply was cut short by a barge-in, False when it
+    played out in full — the engine uses this to keep a cut-off utterance
+    open for stitching the user's continuation onto it.
     """
     sink = sink or _default_sink
     q = queue.Queue(maxsize=3)  # backpressure: don't synth the whole reply at once
@@ -206,3 +197,4 @@ def speak_stream(
     q.join()  # wait until all sentences are synthesized and buffered
     if not cancelled():
         sink.drain()  # ...and until the audio tail has actually played out
+    return cancelled()

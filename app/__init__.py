@@ -1,6 +1,6 @@
 """TalkingAngela — a local-first voice assistant.
 
-Pipeline: mic -> Whisper (local, MLX) -> cleanup (Groq) -> agent (OpenAI + Tavily)
+Pipeline: mic -> Whisper (local, MLX) -> agent (OpenAI + Tavily)
           -> streaming TTS (Kokoro, sentence-by-sentence).
 
 Intentionally no eager imports here: importing a submodule (asr, tts, ...)

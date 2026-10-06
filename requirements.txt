@@ -2,6 +2,7 @@ addict==2.4.0
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
 aiosignal==1.4.0
+aiosqlite==0.22.1
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
@@ -29,7 +30,6 @@ espeakng-loader==0.2.4
 filelock==4.0.6
 frozenlist==1.8.0
 fsspec==2026.9.0
-groq==0.37.1
 h11==0.16.0
 hf-xet==1.6.0
 httpcore==1.0.9
@@ -49,12 +49,12 @@ jsonschema-specifications==2025.9.1
 kokoro==0.9.4
 langchain==1.4.3
 langchain-core==1.6.5
-langchain-groq==1.1.3
 langchain-openai==1.6.6
 langchain-protocol==0.0.19
 langchain-tavily==0.2.18
 langgraph==1.2.12
 langgraph-checkpoint==4.2.0
+langgraph-checkpoint-sqlite==3.1.1
 langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.5
 langsmith==0.14.1
@@ -116,6 +116,7 @@ spacy-curated-transformers==0.3.1
 spacy-legacy==3.0.12
 spacy-loggers==1.0.5
 SpeechRecognition==3.17.0
+sqlite-vec==0.1.9
 sr==0.1.0
 srsly==2.5.4
 sympy==1.14.0

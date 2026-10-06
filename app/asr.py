@@ -2,7 +2,7 @@ import sys
 import numpy as np
 import sounddevice as sd
 import mlx_whisper
-from app.vad import is_speech, speech_probability, CHUNK_SIZE
+from app.vad import speech_probability, CHUNK_SIZE
 
 
 MODEL = "mlx-community/whisper-large-v3-turbo"
@@ -12,10 +12,7 @@ FRAME_MS = 100           # read audio in 100ms chunks
 SILENCE_LIMIT_S = 1.2    # stop after this much silence once speech started
 MAX_RECORD_S = 15.0      # safety cap so a noisy mic can't record forever
 PRE_ROLL_S = 0.3         # keep this much audio before speech started
-CALIBRATION_S = 0.5      # measure background noise for this long before listening
-NOISE_FACTOR = 3.0       # speech threshold = noise floor * this
-MIN_THRESHOLD = 350.0    # rms floor so quiet mics still trigger
-MAX_THRESHOLD = 4000.0   # rms ceiling so loud rooms don't lock out speech
+CALIBRATION_S = 0.5      # keep this much lead-in so the first words aren't lost
 MIN_SPEECH_S = 0.3       # require this much actual speech so a cough doesn't trigger Whisper
 
 
@@ -99,36 +96,28 @@ def record_until_silence(open_stream):
     pre_roll = int(PRE_ROLL_S * 1000 / FRAME_MS)
     min_speech_frames = int(MIN_SPEECH_S * 1000 / FRAME_MS)
 
-    frames, rms_vals = [], []
+    frames = []
 
     with open_stream() as stream:
         # drop one frame right after (re)start: anything stale buffered while
         # we were speaking must never reach Whisper
         stream.read(frame_len)
 
-        # first half second: learn the noise floor (frames are kept, not thrown away)
+        # keep the lead-in instead of throwing it away (leading silence is
+        # trimmed later) so the first words aren't lost if the user starts
+        # speaking immediately
         for _ in range(cal_frames):
             data, _ = stream.read(frame_len)
             frames.append(data.copy())
-            rms_vals.append(_rms(data))
-            # Show visualization during calibration
+            # Show visualization during the lead-in
             vad_prob = speech_probability(data[:CHUNK_SIZE].flatten().astype(np.float32) / 32768.0)
             _visualize_audio(data, vad_prob, False)
-
-        noise_floor = max(rms_vals)
-        if noise_floor > 2 * MIN_THRESHOLD:
-            # user was already talking during calibration -> noise floor is skewed,
-            # fall back to the default threshold instead of locking out their speech
-            threshold = MIN_THRESHOLD
-        else:
-            threshold = min(MAX_THRESHOLD, max(MIN_THRESHOLD, noise_floor * NOISE_FACTOR))
 
         silent = 0
         vad_flags = []  # Track VAD speech detection per frame
         while len(frames) < max_frames:
             data, _ = stream.read(frame_len)
             frames.append(data.copy())
-            rms_vals.append(_rms(data))
 
             # Use VAD for speech detection
             vad_prob = speech_probability(data[:CHUNK_SIZE].flatten().astype(np.float32) / 32768.0)
@@ -186,27 +175,6 @@ def transcribe(audio: np.ndarray):
     return text or None
 
 
-def asr():
-    print("Speak something...")
-
-    audio = record_until_silence(lambda: _input)
-
-    if audio is None:
-        print("No speech detected, try again.")
-        return None
-
-    print(f"Processing Audio ... (Local Whisper) [{len(audio) / SAMPLE_RATE:.1f}s of audio]")
-
-    text = transcribe(audio)
-
-    if text:
-        print("You said:", text)
-        return text
-
-    print("Sorry, I couldn't understand that.")
-    return None
-
-
 def _warm_load():
     """Load Whisper weights once at import so the first question isn't slow.
 
@@ -226,7 +194,3 @@ def _warm_load():
 
 
 _warm_load()
-
-
-if __name__ == "__main__":
-    asr()

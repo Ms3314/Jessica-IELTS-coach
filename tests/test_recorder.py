@@ -4,7 +4,7 @@
 
 VAD is stubbed deterministically so the two-tier silence logic can be tested:
   * 1.5s pause -> BACKFILL (keep the clip open; UI shows a silent cue)
-  * 3.0s pause -> finalize the clip
+  * 2.5s pause -> finalize the clip
 
 The VAD pattern is a string of 'S' (speech) and 's' (silence), one char per
 frame.
@@ -60,7 +60,7 @@ def test_finalize_after_second_pause():
     r = _make_recorder("S" * 5 + "s" * 30)
     assert _run(r, 5 + rec.BACKFILL_SILENCE) is BACKFILL
     clip = _run(r, rec.FINAL_SILENCE - rec.BACKFILL_SILENCE)
-    assert isinstance(clip, np.ndarray), "3.0s of silence must finalize the clip"
+    assert isinstance(clip, np.ndarray), "2.5s of silence must finalize the clip"
     assert clip.ndim == 1, "clip must be flat 1D audio"
     assert len(clip) > 0
 

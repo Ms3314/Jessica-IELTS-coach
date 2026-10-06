@@ -18,16 +18,19 @@ import json
 import logging
 import os
 import queue
-import time
+import re
 import threading
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from app.engine import Session
 from app.io import WebSocketSource, WebSocketSink, WebSocketHandler, QUIT
+from app import sessions as sessions_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +40,9 @@ logger = logging.getLogger("speakIelts")
 
 WEB_DIST = Path(__file__).resolve().parent / "web" / "dist"
 
+# LangGraph thread ids we accept from the browser (used as the SQLite key).
+_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
 app = FastAPI(title="speakIelts", version="0.1.0")
 
 
@@ -45,14 +51,79 @@ async def healthz():
     return {"ok": True}
 
 
+class UpdateSession(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+
+@app.get("/sessions")
+async def get_sessions():
+    """List voice sessions (metadata + cached summaries), newest first."""
+    return [m.__dict__ for m in sessions_db.list_sessions()]
+
+
+@app.post("/sessions/{session_id}")
+async def update_session(session_id: str, body: UpdateSession):
+    if not _SESSION_ID.match(session_id):
+        return {"error": "invalid session id"}, 400
+    sessions_db.update(session_id, name=body.name, color=body.color)
+    return {"ok": True}
+
+
+@app.get("/sessions/{session_id}/summary")
+async def get_session_summary(session_id: str):
+    if not _SESSION_ID.match(session_id):
+        return {"error": "invalid session id"}, 400
+    return {"summary": sessions_db.get_summary(session_id)}
+
+
+@app.post("/sessions/{session_id}/summarize")
+async def summarize_session(session_id: str):
+    """Generate (and cache) a one-paragraph summary of the thread."""
+    if not _SESSION_ID.match(session_id):
+        return {"error": "invalid session id"}, 400
+    summary = sessions_db.summarize(session_id)
+    sessions_db.set_summary(session_id, summary)
+    return {"summary": summary}
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    if not _SESSION_ID.match(session_id):
+        return {"error": "invalid session id"}, 400
+    sessions_db.delete(session_id)
+    return {"ok": True}
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    logger.info("client connected")
 
-    # Per-connection counters for logging the mic stream (diagnostic only).
-    _mic_bytes = 0
-    _mic_last_log = time.monotonic()
+    # The browser keeps its session id in localStorage and sends it in the
+    # query string, so a reconnect (or Quit/Start) resumes the same memory.
+    requested = ws.query_params.get("session", "")
+    session_id = requested if _SESSION_ID.match(requested) else uuid.uuid4().hex
+    logger.info("client connected (session %s)", session_id)
+    sessions_db.touch(session_id)
+
+    # Wait for the user to click the mic before starting the engine. This lets
+    # us play a personalised opening question (random for new sessions, summary-
+    # based for returning ones) without an engine thread idling in the background.
+    started = False
+    try:
+        while not started:
+            raw = await ws.receive_text()
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                if data.get("type") == "start":
+                    started = True
+                elif data.get("type") == "quit":
+                    return
+    except WebSocketDisconnect:
+        return
 
     in_q: "queue.Queue" = queue.Queue()
     out_q: "queue.Queue" = queue.Queue()
@@ -60,7 +131,7 @@ async def ws_endpoint(ws: WebSocket):
     source = WebSocketSource(in_q)
     sink = WebSocketSink(out_q)
     handler = WebSocketHandler(out_q)
-    session = Session(source, sink, handler)
+    session = Session(source, sink, handler, session_id=session_id, greet=True)
 
     loop = asyncio.get_running_loop()
 
@@ -70,47 +141,28 @@ async def ws_endpoint(ws: WebSocket):
 
     async def sender():
         # Drain engine -> WS. Running in the executor keeps the loop responsive.
-        total_audio = 0
         while True:
             item = await loop.run_in_executor(None, out_q.get)
             if item is None:
                 break
             if isinstance(item, (bytes, bytearray)):
-                n = len(item)
-                total_audio += n
-                # Float32 @ 24 kHz => 4 bytes/sample => 6 bytes/ms of audio.
-                ms = n // 24
-                logger.info(
-                    ">> streaming %d bytes of TTS audio to client (~%d ms, session total %d bytes)",
-                    n,
-                    ms,
-                    total_audio,
-                )
                 await ws.send_bytes(bytes(item))
             else:
                 if isinstance(item, dict):
                     etype = item.get("type")
                     if etype == "agent":
                         logger.info(">> agent reply: %s", item.get("text", "")[:80])
-                    elif etype == "user":
-                        logger.info(">> user said: %s", item.get("text", "")[:80])
                     elif etype == "state":
                         logger.info(">> state -> %s", item.get("state"))
                     elif etype == "error":
-                        logger.info(">> ERROR event: %s", item.get("message", "")[:160])
-                    else:
-                        logger.info(">> event: %s", etype)
+                        logger.info(">> ERROR: %s", item.get("message", "")[:160])
                 await ws.send_json(item)
 
-    # The very first thing the engine sends is the "listening" state. Consume
-    # and send it BEFORE we start the sender task or await ws.receive(). This
-    # avoids both (a) a race between two consumers on out_q and (b) the ASGI
-    # layer dropping inbound binary frames because a receive was pending while
-    # the initial outbound state was in flight.
+    # Consume the engine's first event ("listening") BEFORE the sender task
+    # starts: two consumers on out_q would race, and an in-flight outbound
+    # event can make the ASGI layer drop the first inbound binary frames.
     first_item = await loop.run_in_executor(None, out_q.get)
     if first_item is not None:
-        if isinstance(first_item, dict) and first_item.get("type") == "state":
-            logger.info(">> state -> %s", first_item.get("state"))
         await ws.send_json(first_item)
 
     sender_task = asyncio.create_task(sender())
@@ -130,15 +182,7 @@ async def ws_endpoint(ws: WebSocket):
                 break
 
             if has_bytes:
-                binary = msg["bytes"]
-                in_q.put(binary)
-                _mic_bytes += len(binary)
-                now = time.monotonic()
-                if now - _mic_last_log > 2.0:
-                    logger.info(
-                        "<< received %d bytes of mic audio from client so far", _mic_bytes
-                    )
-                    _mic_last_log = now
+                in_q.put(msg["bytes"])
 
             # Text / JSON control frames (e.g. {"type":"quit"}).
             raw = msg.get("text") or msg.get("data") or msg.get("json")

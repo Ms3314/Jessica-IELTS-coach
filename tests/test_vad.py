@@ -9,18 +9,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-from app.vad import is_speech, speech_probability, CHUNK_SIZE, SAMPLE_RATE
+from app.vad import speech_probability, CHUNK_SIZE, SAMPLE_RATE
 
 
 def test_silence_is_not_speech():
     silence = np.zeros(CHUNK_SIZE, dtype=np.float32)
-    assert not is_speech(silence), "silence must not be speech"
     assert speech_probability(silence) < 0.5
 
 
 def test_quiet_noise_is_not_speech():
     noise = (np.random.randn(CHUNK_SIZE) * 0.05).astype(np.float32)
-    assert not is_speech(noise), "quiet noise must not be speech"
+    assert speech_probability(noise) < 0.5
 
 
 def test_loud_noise_is_not_speech():
@@ -46,7 +45,7 @@ def test_accepts_numpy_float64():
 def test_accepts_list_input():
     # plain Python list should also work
     chunk = [0.0] * CHUNK_SIZE
-    assert not is_speech(chunk)
+    assert speech_probability(chunk) < 0.5
 
 
 def test_probability_is_stable():

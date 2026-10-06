@@ -1,8 +1,8 @@
-# TalkingAngela
+# speakIelts
 
 A local-first, low-latency voice assistant for macOS (Apple Silicon).
 
-Talk into your mic; Angela listens, thinks, and answers out loud — with search
+Talk into your mic; Jessica listens, thinks, and answers out loud — with search
 when she needs facts.
 
 ## Pipeline
@@ -14,15 +14,13 @@ mic ──> Whisper large-v3-turbo (local, MLX)     # speech -> text
 ```
 
 Latency tricks:
-- Records only while you talk (energy-based silence detection), trims dead air
+- Records only while you talk (Silero VAD endpointing), trims dead air
 - Agent reply is **streamed**: each finished sentence is spoken while the rest
   is still being generated
 - One persistent mic + one persistent speaker stream (repeated PortAudio
   open/close was wedging macOS CoreAudio)
 - Whisper is warm-loaded at startup, audio goes straight to it as a numpy
   array (no temp WAV, no ffmpeg)
-- **Silero VAD** for voice activity detection — neural network that understands
-  what speech sounds like, far fewer false triggers than RMS energy
 
 ## Project structure
 
@@ -36,15 +34,20 @@ app/
   ├── recorder.py          # streaming VAD + endpointing for web mic audio
   ├── vad.py               # Silero VAD — neural voice activity detection
   ├── asr.py               # mic capture + local Whisper transcription
-  ├── agent.py             # LangChain agent, streams text deltas
-  └── tts.py               # Kokoro sentence-streaming playback (sink-aware)
-web/                       # React + Vite UI (avatar, transcript, mic capture)
-  ├── src/lib/audio.ts     # mic capture, resample, TTS playback, lipsync
+  ├── agent.py             # LangChain agent + SQLite session memory (streams deltas)
+  ├── tts.py               # Kokoro sentence-streaming playback (sink-aware)
+  ├── sessions.py          # session metadata, colours, summaries
+  └── greeting.py          # opening question (new session = random, returning = summary-based)
+web/                       # React + Vite UI (blob visual, caption, mic capture)
+  ├── src/lib/audio.ts     # mic capture, resample, TTS playback, levels
   └── src/lib/useVoice.ts  # WebSocket client + React state
 tests/
   ├── test_asr.py          # recording logic (fake mic stream, no device needed)
+  ├── test_vad.py          # VAD model (silence/noise rejection, dtype handling)
+  ├── test_recorder.py     # streaming two-tier endpointing + backfill
   ├── test_tts.py          # sentence splitter edge cases
-  └── test_vad.py          # VAD model (silence/noise rejection, dtype handling)
+  ├── test_io.py           # event serialization plumbing
+  └── test_engine_stitch.py# barge-in continuation stitching
 .env                       # API keys (not committed)
 requirements.txt           # pinned dependencies for this machine
 TODO.md                    # design log: every change and WHY it was made
@@ -80,7 +83,7 @@ Say **"goodbye"** (the whole utterance) to quit. First launch downloads the
 Kokoro + Whisper models and takes a few seconds; after that, the Whisper
 weights warm-load at startup.
 
-### Web UI (browser audio + talking-head avatar)
+### Web UI (browser audio + voice visual)
 
 The same engine also runs behind a FastAPI + WebSocket server. The browser
 captures the mic and plays the reply; Whisper, the agent, and Kokoro all stay
@@ -126,8 +129,23 @@ CLI's app discovery misbehaves in that combination; auto-detection is enough.
 
 One-command convenience: `./start.sh` (builds the UI if missing, then starts).
 
-Open <http://localhost:8080>, click **Start** (grants mic access), and talk.
-The avatar's mouth lipsyncs to the streamed TTS; the transcript updates live.
+Open <http://localhost:8080>, then tap the **mic button** to grant mic access
+and start the call. Jessica opens with a question: a random starter for a new
+session, or a follow-up based on the previous conversation summary for a
+returning one.
+
+The blob glows in your chosen session colour and follows the live audio; your
+last sentence appears as a simple italic caption below it. Long answers don't
+squash the visual.
+
+The **left sidebar** lists your sessions. You can rename a session, pick its
+colour, delete it, or ask for a one-paragraph summary. A **mic-mute** button
+lets you silence your own microphone without ending the call — Jessica's voice
+keeps playing normally.
+
+Conversation memory lives in **SQLite** (`checkpoints.db`), one thread per
+voice session. Quit/Start and page reloads resume the same memory; **New
+session** starts a fresh thread.
 
 For backend-only no-reload: `python -m uvicorn server:app --port 8080`.
 For frontend hot-reload development: `cd web && npm run dev` (Vite on :5173,
@@ -136,9 +154,12 @@ which proxies `/ws` to the Python server on :8080).
 ## Testing
 
 ```bash
-python tests/test_tts.py   # sentence splitter edge cases (fast, no devices)
-python tests/test_asr.py   # recording state machine with a fake mic (no mic needed)
-python tests/test_vad.py   # VAD model: silence/noise rejection, dtype handling
+python tests/test_asr.py            # recording state machine with a fake mic
+python tests/test_vad.py            # VAD: silence/noise rejection, dtype handling
+python tests/test_recorder.py       # streaming endpointing (1.5s cue, 2.5s finalize)
+python tests/test_tts.py            # sentence splitter edge cases
+python tests/test_io.py             # event serialization
+python tests/test_engine_stitch.py  # barge-in continuation stitching
 ```
 
 Headless tests use a fake audio stream — no microphone, no speakers, no API keys.

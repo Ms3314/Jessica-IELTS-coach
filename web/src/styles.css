@@ -1,15 +1,64 @@
+@import "tailwindcss";
+
+/* --- shadcn theme tokens (this app is dark-only, so :root holds the dark
+       palette — no .dark class needed) -------------------------------------- */
 :root {
-  --bg: #04050a;
-  --panel: #0b0d14;
-  --panel-2: #141824;
-  --text: #eef1f8;
-  --muted: #7d8598;
-  --accent: #5b8def;
-  color-scheme: dark;
+  --radius: 0.625rem;
+
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.185 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.185 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.62 0.19 259);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.23 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.23 0 0);
+  --muted-foreground: oklch(0.66 0 0);
+  --accent: oklch(0.25 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.62 0.21 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.62 0.19 259 / 55%);
 }
 
-* {
-  box-sizing: border-box;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* --- app palette --------------------------------------------------------- */
+:root {
+  --app-bg: #04050a;
+  --app-panel: #0b0d14;
+  --app-text: #eef1f8;
+  --app-muted: #7d8598;
+  color-scheme: dark;
 }
 
 html,
@@ -20,73 +69,210 @@ body,
 }
 
 body {
-  background: radial-gradient(1100px 760px at 70% -10%, #101528 0%, var(--bg) 62%);
-  color: var(--text);
+  background: radial-gradient(1100px 760px at 70% -10%, #101528 0%, var(--app-bg) 62%);
+  color: var(--app-text);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-.app {
-  max-width: 720px;
+/* --- shell: sidebar + main area ----------------------------------------- */
+.app-shell {
+  max-width: 1280px;
   margin: 0 auto;
   height: 100%;
   display: flex;
-  flex-direction: column;
-  padding: 20px;
+  padding: 16px;
   gap: 16px;
 }
 
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .topbar h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 22px;
   letter-spacing: 0.5px;
 }
 .topbar .subtitle {
   margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 14px;
+  color: var(--app-muted);
+  font-size: 13px;
+}
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.active-session-name {
+  font-size: 13px;
+  font-weight: 500;
 }
 
+/* --- session sidebar ----------------------------------------------------- */
+.session-sidebar {
+  width: 260px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: color-mix(in srgb, var(--app-panel) 80%, transparent);
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 14px;
+  padding: 14px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.session-sidebar.closed {
+  display: none;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-header h2 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+.sidebar-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar-summary {
+  background: rgb(255 255 255 / 4%);
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.sidebar-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+.sidebar-summary-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #a3aab8;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.session-item:hover {
+  background: rgb(255 255 255 / 5%);
+}
+.session-item.active {
+  background: rgb(255 255 255 / 9%);
+}
+
+.session-color {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.session-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.session-color::-webkit-color-swatch {
+  border: 2px solid rgb(255 255 255 / 20%);
+  border-radius: 50%;
+}
+
+.session-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  font-size: 13px;
+  padding: 0 6px;
+}
+.session-menu {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.session-item:hover .session-menu {
+  opacity: 1;
+}
+
+/* --- blob stage ---------------------------------------------------------- */
 .stage {
   position: relative;
   flex: 1;
+  min-height: 0;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  padding: 8px 0;
+  justify-content: center;
+  padding: 8px 0 48px;
 }
 
-/* Aura canvas — the voice visual, sized to fit the stage */
 .aura-canvas {
-  width: min(560px, 92vw, 66vh);
+  width: min(560px, 88%, 58vh);
+  max-height: 100%;
   aspect-ratio: 1 / 1;
   pointer-events: none;
 }
 
-.error-banner {
+/* Italic caption floating just below the blob — no boxes. */
+.caption-wrap {
   position: absolute;
-  bottom: -4px;
-  background: #ef575733;
-  border: 1px solid #ef5757;
-  color: #ffd9d9;
-  padding: 6px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-/* grey subtitle of what the user just said (voice-only UI) */
-.caption {
-  min-height: 26px;
-  margin: 0;
-  padding: 0 16px;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, 92%);
   text-align: center;
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.5;
-  animation: pop 0.18s ease-out;
+  pointer-events: none;
 }
-.caption.empty {
-  animation: none;
-  opacity: 0;
+.caption {
+  margin: 0;
+  font-style: italic;
+  color: var(--app-muted);
+  font-size: 15px;
+  line-height: 1.55;
+  animation: pop 0.18s ease-out;
 }
 
 @keyframes pop {
@@ -100,84 +286,90 @@ body {
   }
 }
 
+.error-banner {
+  position: absolute;
+  bottom: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ef575733;
+  border: 1px solid #ef5757;
+  color: #ffd9d9;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* --- controls ------------------------------------------------------------ */
 .controls {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
+}
+
+.control-cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .status {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--muted);
+  color: var(--app-muted);
   font-size: 14px;
-  flex: 1;
 }
 .status .dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--session-color);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--session-color) 25%, transparent);
 }
-.status.listening .dot {
-  background: #39d98a;
-  box-shadow: 0 0 0 4px #39d98a33;
-}
-.status.thinking .dot,
-.status.transcribing .dot {
-  background: #f2a154;
-}
-.status.speaking .dot {
-  background: #f06ea9;
-}
-.status.error .dot {
-  background: #ef5757;
-}
-/* brief silent cue while the user pauses mid-thought */
 .status.paused {
-  color: #9fe8c0;
   font-style: italic;
 }
-.status.paused .dot {
-  background: #39d98a;
-  box-shadow: 0 0 0 4px #39d98a33;
-  animation: pause-pulse 1.1s ease-in-out infinite;
+
+.mic-button {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--session-color);
+  color: white;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--session-color) 35%, transparent);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-@keyframes pause-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.25);
-  }
+.mic-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 32px color-mix(in srgb, var(--session-color) 45%, transparent);
 }
 
-.btn {
-  border: 1px solid #232a3d;
-  background: var(--panel-2);
-  color: var(--text);
-  padding: 10px 20px;
-  border-radius: 12px;
-  font-size: 15px;
-  cursor: pointer;
-  transition: transform 0.08s ease, background 0.15s ease;
-}
-.btn:hover:not(:disabled) {
-  background: #1b2130;
-}
-.btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-.btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.btn.primary:hover:not(:disabled) {
-  background: #6f9bf5;
+/* --- narrow screens ------------------------------------------------------ */
+@media (max-width: 760px) {
+  .app-shell {
+    padding: 12px;
+    gap: 12px;
+  }
+  .session-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 280px;
+    z-index: 50;
+    border-radius: 0 14px 14px 0;
+  }
+  .session-sidebar.closed {
+    display: none;
+  }
+  .aura-canvas {
+    width: min(420px, 92%, 46vh);
+  }
+  .topbar h1 {
+    font-size: 18px;
+  }
+  .topbar .subtitle {
+    display: none;
+  }
 }
