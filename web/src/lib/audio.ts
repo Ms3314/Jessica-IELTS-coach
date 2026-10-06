@@ -5,20 +5,28 @@
 //  * Plays the 24 kHz float32 TTS PCM streamed back from the server.
 //  * Exposes live `mouth` and `mic` levels (0..1) for the avatar to read in its
 //    own animation frame loop (no React re-render per frame).
+//  * Exposes `visualSource`, a FrameSource<VisualFrame> for the audiocn bar
+//    visualizer.
 //
 // A single AudioContext is shared by capture and playback. It must be created
 // from a user gesture, so `init()` is called from the Start button. Mic capture
 // uses an AudioWorklet (off the main thread) instead of the deprecated
 // ScriptProcessorNode.
 
+import { createFrameEmitter } from "@/lib/audio/frame-source";
+import type { FrameEmitter } from "@/lib/audio/frame-source";
+import type { VisualFrame } from "@/lib/audio/types";
+
 const TARGET_RATE = 16000; // mic -> server (Whisper expects 16 kHz)
 const TTS_RATE = 24000; // server -> browser (Kokoro outputs 24 kHz)
+const VISUAL_BANDS = 24; // number of bars in the visualizer
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private analyser: AnalyserNode | null = null;
+  private micAnalyser: AnalyserNode | null = null;
   private silentGain: GainNode | null = null;
   private levelGen = 0; // invalidates old rAF level loops after stop()/init()
 
@@ -31,6 +39,9 @@ export class AudioEngine {
   mic = 0; // 0 quiet .. 1 loud (driven by mic input)
 
   capturing = false;
+
+  // Push visual frames to this source for the bar visualizer.
+  visualSource: FrameEmitter<VisualFrame> = createFrameEmitter<VisualFrame>();
 
   // Called with an Int16Array of 16 kHz mono PCM to forward to the server.
   onPCM: (pcm: Int16Array) => void = () => {};
@@ -63,6 +74,12 @@ export class AudioEngine {
       });
       this.micStream = stream;
       const source = ctx.createMediaStreamSource(stream);
+
+      // Mic analyser for the visualizer.
+      const micAnalyser = ctx.createAnalyser();
+      micAnalyser.fftSize = 1024;
+      source.connect(micAnalyser);
+      this.micAnalyser = micAnalyser;
 
       const worklet = new AudioWorkletNode(ctx, "recorder-processor");
       // Mute any worklet output (it's silent anyway) before reaching the speakers.
@@ -136,22 +153,41 @@ export class AudioEngine {
   private startLevelLoop() {
     if (!this.analyser) return;
     const gen = ++this.levelGen;
-    const data = new Uint8Array(this.analyser.fftSize);
+    const timeData = new Uint8Array(this.analyser.fftSize);
+    const freqData = new Uint8Array(this.analyser.frequencyBinCount);
+    const micFreqData = new Uint8Array(this.micAnalyser?.frequencyBinCount ?? 0);
     const tick = () => {
       if (gen !== this.levelGen) return; // stopped or re-initialized
       const analyser = this.analyser;
       if (analyser) {
-        analyser.getByteTimeDomainData(data);
+        analyser.getByteTimeDomainData(timeData);
         let sum = 0;
-        for (let i = 0; i < data.length; i++) {
-          const v = (data[i] - 128) / 128;
+        for (let i = 0; i < timeData.length; i++) {
+          const v = (timeData[i] - 128) / 128;
           sum += v * v;
         }
-        const r = Math.sqrt(sum / data.length);
+        const r = Math.sqrt(sum / timeData.length);
         // Smooth toward the new amplitude so the mouth moves naturally.
         const target = Math.min(1, r * 3.2);
         this.mouth = this.mouth * 0.55 + target * 0.45;
       }
+
+      // Push a visual frame to the bar visualizer.
+      const activeAnalyser = this.ttsPlaying
+        ? this.analyser
+        : this.micAnalyser;
+      const activeFreq = this.ttsPlaying ? freqData : micFreqData;
+      if (activeAnalyser && activeFreq.length > 0) {
+        activeAnalyser.getByteFrequencyData(activeFreq);
+        this.visualSource.emit({
+          bands: frequencyBands(activeFreq, VISUAL_BANDS),
+          history: new Float32Array(0),
+          historyStart: 0,
+          historyLength: 0,
+          peakDb: 0,
+        });
+      }
+
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -170,6 +206,8 @@ export class AudioEngine {
     this.micStream = null;
     this.analyser?.disconnect();
     this.analyser = null;
+    this.micAnalyser?.disconnect();
+    this.micAnalyser = null;
     this.ctx?.close();
     this.ctx = null;
     this.mouth = 0;
@@ -206,4 +244,22 @@ function floatTo16(x: Float32Array): Int16Array {
     out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
   }
   return out;
+}
+
+/** Resample raw FFT bins into a smaller number of frequency bands (0..1). */
+function frequencyBands(data: Uint8Array, bandCount: number): Float32Array {
+  const bands = new Float32Array(bandCount);
+  const binCount = data.length;
+  for (let i = 0; i < bandCount; i++) {
+    const start = Math.floor(binCount * Math.pow(i / bandCount, 1.4));
+    const end = Math.floor(binCount * Math.pow((i + 1) / bandCount, 1.4));
+    let sum = 0;
+    let n = 0;
+    for (let j = start; j < end && j < binCount; j++) {
+      sum += data[j] / 255;
+      n++;
+    }
+    bands[i] = n > 0 ? sum / n : 0;
+  }
+  return bands;
 }

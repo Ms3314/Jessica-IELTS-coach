@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { PanelLeft } from "lucide-react";
-import Aura from "@/components/Aura";
+import { BarVisualizer } from "@/components/ui/bar-visualizer";
 import Controls from "@/components/Controls";
 import SessionSidebar, { type Session } from "@/components/SessionSidebar";
 import { Button } from "@/components/ui/button";
@@ -115,7 +115,16 @@ export default function App() {
         </header>
 
         <main className="stage">
-          <Aura engineRef={engine} state={visualState} color={sessionColor} />
+          <div className="visualizer-wrap">
+            <BarVisualizer
+              aria-label="Voice activity"
+              className="h-40 w-full max-w-md"
+              style={{ color: sessionColor }}
+              source={engine.current?.visualSource ?? null}
+              mirrored
+              idle="pulse"
+            />
+          </div>
           {error && <div className="error-banner">{error}</div>}
 
           <div className="caption-wrap">

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 /* --- shadcn theme tokens (this app is dark-only, so :root holds the dark
        palette — no .dark class needed) -------------------------------------- */
 :root {
@@ -24,6 +26,18 @@
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 16%);
   --ring: oklch(0.62 0.19 259 / 55%);
+  --meter-ok: oklch(0.696 0.17 162.48);
+  --meter-warn: oklch(0.795 0.184 86.047);
+  --meter-clip: var(--destructive);
+  --channel-mute: var(--destructive);
+  --channel-solo: oklch(0.795 0.184 86.047);
+  --channel-monitor: oklch(0.623 0.214 259.815);
+  --meter-ok-foreground: color-mix(in oklch, var(--meter-ok), black 40%);
+  --meter-warn-foreground: color-mix(in oklch, var(--meter-warn), black 40%);
+  --meter-clip-foreground: color-mix(in oklch, var(--meter-clip), black 40%);
+  --channel-mute-foreground: color-mix(in oklch, var(--channel-mute), black 40%);
+  --channel-solo-foreground: color-mix(in oklch, var(--channel-solo), black 40%);
+  --channel-monitor-foreground: color-mix(in oklch, var(--channel-monitor), black 40%);
 }
 
 @theme inline {
@@ -50,6 +64,26 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --color-meter-ok: var(--meter-ok);
+  --color-meter-warn: var(--meter-warn);
+  --color-meter-clip: var(--meter-clip);
+  --color-channel-mute: var(--channel-mute);
+  --color-channel-solo: var(--channel-solo);
+  --color-channel-monitor: var(--channel-monitor);
+  --color-meter-ok-foreground: var(--meter-ok-foreground);
+  --color-meter-warn-foreground: var(--meter-warn-foreground);
+  --color-meter-clip-foreground: var(--meter-clip-foreground);
+  --color-channel-mute-foreground: var(--channel-mute-foreground);
+  --color-channel-solo-foreground: var(--channel-solo-foreground);
+  --color-channel-monitor-foreground: var(--channel-monitor-foreground);
+  --channel-monitor-foreground: var(--channel-monitor-foreground);
+  --channel-solo-foreground: var(--channel-solo-foreground);
+  --channel-mute-foreground: var(--channel-mute-foreground);
+  --meter-clip-foreground: var(--meter-clip-foreground);
+  --meter-warn-foreground: var(--meter-warn-foreground);
+  --meter-ok-foreground: var(--meter-ok-foreground);
+  --channel-mute: var(--channel-mute);
+  --meter-clip: var(--meter-clip);
 }
 
 /* --- app palette --------------------------------------------------------- */
@@ -249,11 +283,12 @@ body {
   padding: 8px 0 48px;
 }
 
-.aura-canvas {
-  width: min(560px, 88%, 58vh);
-  max-height: 100%;
-  aspect-ratio: 1 / 1;
-  pointer-events: none;
+.visualizer-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0 24px;
 }
 
 /* Italic caption floating just below the blob — no boxes. */
@@ -363,13 +398,25 @@ body {
   .session-sidebar.closed {
     display: none;
   }
-  .aura-canvas {
-    width: min(420px, 92%, 46vh);
-  }
   .topbar h1 {
     font-size: 18px;
   }
   .topbar .subtitle {
     display: none;
   }
+}
+
+.dark {
+  --meter-ok: oklch(0.765 0.177 163.223);
+  --meter-warn: oklch(0.852 0.199 91.936);
+  --meter-clip: var(--destructive);
+  --channel-mute: var(--destructive);
+  --channel-solo: oklch(0.852 0.199 91.936);
+  --channel-monitor: oklch(0.707 0.165 254.624);
+  --meter-ok-foreground: var(--meter-ok);
+  --meter-warn-foreground: var(--meter-warn);
+  --meter-clip-foreground: var(--meter-clip);
+  --channel-mute-foreground: var(--channel-mute);
+  --channel-solo-foreground: var(--channel-solo);
+  --channel-monitor-foreground: var(--channel-monitor);
 }
