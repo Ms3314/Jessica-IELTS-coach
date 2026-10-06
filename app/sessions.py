@@ -30,6 +30,41 @@ _DEFAULT_COLORS = [
     "#ef4444",  # red
 ]
 
+_DEFAULT_ICONS = [
+    "Bot",
+    "Sparkles",
+    "Zap",
+    "MessageCircle",
+    "Brain",
+    "Lightbulb",
+    "Star",
+    "Heart",
+    "Moon",
+    "Sun",
+    "Cloud",
+    "Flame",
+    "Gem",
+    "Rocket",
+    "Target",
+    "Compass",
+    "Crown",
+    "Diamond",
+    "Feather",
+    "Ghost",
+    "Globe",
+    "Key",
+    "Leaf",
+    "Map",
+    "Music",
+    "Palette",
+    "Shield",
+    "Smile",
+    "Snowflake",
+    "Umbrella",
+    "Wallet",
+    "Watch",
+]
+
 
 def _init() -> None:
     with _lock:
@@ -39,12 +74,18 @@ def _init() -> None:
                 id TEXT PRIMARY KEY,
                 name TEXT,
                 color TEXT,
+                icon TEXT,
                 summary TEXT,
                 updated_at REAL
             )
             """
         )
-        _conn.commit()
+        # Add icon column to tables created before this migration.
+        try:
+            _conn.execute("ALTER TABLE session_meta ADD COLUMN icon TEXT")
+            _conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 _init()
@@ -55,6 +96,7 @@ class SessionMeta:
     id: str
     name: str
     color: str
+    icon: str
     summary: Optional[str]
     updated_at: float
 
@@ -67,6 +109,10 @@ def _default_color() -> str:
     return random.choice(_DEFAULT_COLORS)
 
 
+def _default_icon() -> str:
+    return random.choice(_DEFAULT_ICONS)
+
+
 def touch(session_id: str) -> None:
     """Ensure a metadata row exists for the session (does not reorder it)."""
     with _lock:
@@ -76,13 +122,14 @@ def touch(session_id: str) -> None:
         if cur.fetchone() is None:
             _conn.execute(
                 """
-                INSERT INTO session_meta (id, name, color, summary, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO session_meta (id, name, color, icon, summary, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     _default_name(session_id),
                     _default_color(),
+                    _default_icon(),
                     None,
                     time.time(),
                 ),
@@ -105,7 +152,7 @@ def list_sessions() -> list[SessionMeta]:
     with _lock:
         rows = _conn.execute(
             """
-            SELECT id, name, color, summary, updated_at
+            SELECT id, name, color, icon, summary, updated_at
             FROM session_meta
             ORDER BY updated_at DESC
             """
@@ -115,8 +162,9 @@ def list_sessions() -> list[SessionMeta]:
             id=r[0],
             name=r[1] or _default_name(r[0]),
             color=r[2] or _DEFAULT_COLORS[0],
-            summary=r[3],
-            updated_at=r[4],
+            icon=r[3] or _DEFAULT_ICONS[0],
+            summary=r[4],
+            updated_at=r[5],
         )
         for r in rows
     ]
@@ -126,8 +174,9 @@ def update(
     session_id: str,
     name: Optional[str] = None,
     color: Optional[str] = None,
+    icon: Optional[str] = None,
 ) -> None:
-    """Rename or recolour a session."""
+    """Rename, recolour or change the icon of a session."""
     parts = []
     values = []
     if name is not None:
@@ -136,6 +185,9 @@ def update(
     if color is not None:
         parts.append("color = ?")
         values.append(color)
+    if icon is not None:
+        parts.append("icon = ?")
+        values.append(icon)
     if not parts:
         return
     values.append(session_id)

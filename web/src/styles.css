@@ -187,33 +187,6 @@ body {
   min-height: 0;
 }
 
-.sidebar-summary {
-  background: rgb(255 255 255 / 4%);
-  border: 1px solid rgb(255 255 255 / 7%);
-  border-radius: 10px;
-  padding: 10px 12px;
-}
-.sidebar-summary-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--app-muted);
-}
-.sidebar-summary-text {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #a3aab8;
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 .session-item {
   display: flex;
   align-items: center;
@@ -230,22 +203,26 @@ body {
   background: rgb(255 255 255 / 9%);
 }
 
-.session-color {
-  width: 16px;
-  height: 16px;
+.session-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   border: none;
-  border-radius: 50%;
+  border-radius: 6px;
   padding: 0;
   background: none;
   cursor: pointer;
   flex: 0 0 auto;
+  opacity: 0.9;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
-.session-color::-webkit-color-swatch-wrapper {
-  padding: 0;
+.session-item:hover .session-icon {
+  opacity: 1;
 }
-.session-color::-webkit-color-swatch {
-  border: 2px solid rgb(255 255 255 / 20%);
-  border-radius: 50%;
+.session-icon:hover {
+  transform: scale(1.15);
 }
 
 .session-name {
@@ -378,6 +355,36 @@ body {
 .mic-button:hover {
   transform: scale(1.05);
   box-shadow: 0 0 32px color-mix(in srgb, var(--session-color) 45%, transparent);
+}
+
+/* --- summary panel (main space) ------------------------------------------ */
+.summary-panel {
+  background: color-mix(in srgb, var(--app-panel) 70%, transparent);
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 14px;
+  padding: 14px 18px;
+}
+.summary-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.summary-panel-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+.summary-panel-text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #b6bdcb;
+  max-height: 4.8em;
+  overflow-y: auto;
 }
 
 /* --- narrow screens ------------------------------------------------------ */

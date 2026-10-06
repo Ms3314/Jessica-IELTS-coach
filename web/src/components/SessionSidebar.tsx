@@ -1,5 +1,45 @@
 import { useState } from "react";
-import { MessageSquareText, MoreVertical, Plus, Pencil, Trash2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Bot,
+  Brain,
+  Cloud,
+  Compass,
+  Crown,
+  Diamond,
+  Feather,
+  Flame,
+  Gem,
+  Ghost,
+  Globe,
+  Heart,
+  Key,
+  Leaf,
+  Lightbulb,
+  Map,
+  MessageCircle,
+  MessageSquareText,
+  Moon,
+  MoreVertical,
+  Music,
+  Palette,
+  Pencil,
+  Plus,
+  Rocket,
+  Shield,
+  Shuffle,
+  Smile,
+  Snowflake,
+  Sparkles,
+  Star,
+  Sun,
+  Target,
+  Trash2,
+  Umbrella,
+  Wallet,
+  Watch,
+  Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,6 +61,7 @@ export interface Session {
   id: string;
   name: string;
   color: string;
+  icon: string;
   summary?: string | null;
   updated_at: number;
 }
@@ -35,6 +76,53 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+const ICONS: Record<string, LucideIcon> = {
+  Bot,
+  Sparkles,
+  Zap,
+  MessageCircle,
+  Brain,
+  Lightbulb,
+  Star,
+  Heart,
+  Moon,
+  Sun,
+  Cloud,
+  Flame,
+  Gem,
+  Rocket,
+  Target,
+  Compass,
+  Crown,
+  Diamond,
+  Feather,
+  Ghost,
+  Globe,
+  Key,
+  Leaf,
+  Map,
+  Music,
+  Palette,
+  Shield,
+  Smile,
+  Snowflake,
+  Umbrella,
+  Wallet,
+  Watch,
+};
+
+const ICON_NAMES = Object.keys(ICONS);
+
+function SessionIcon({ name }: { name: string }) {
+  const Icon = ICONS[name] || Bot;
+  return <Icon className="size-4" />;
+}
+
+function randomIcon(current: string): string {
+  const others = ICON_NAMES.filter((n) => n !== current);
+  return others[Math.floor(Math.random() * others.length)];
+}
+
 export default function SessionSidebar({
   sessions,
   activeId,
@@ -47,9 +135,6 @@ export default function SessionSidebar({
   const [summaryId, setSummaryId] = useState<string | null>(null);
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-
-  const activeSession = sessions.find((s) => s.id === activeId);
 
   const summarize = async (id: string) => {
     setSummaryId(id);
@@ -65,42 +150,11 @@ export default function SessionSidebar({
     }
   };
 
-  const summarizeActive = async () => {
-    if (!activeId) return;
-    setGenerating(true);
-    try {
-      await fetch(`/sessions/${activeId}/summarize`, { method: "POST" });
-      onUpdate(activeId, {});
-    } finally {
-      setGenerating(false);
-    }
-  };
-
   return (
     <>
       <aside className={`session-sidebar ${open ? "" : "closed"}`}>
         <div className="sidebar-header">
           <h2>Sessions</h2>
-        </div>
-
-        <div className="sidebar-summary">
-          <div className="sidebar-summary-head">
-            <span>Summary</span>
-            {!activeSession?.summary && (
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={generating}
-                onClick={summarizeActive}
-              >
-                {generating ? "Generating…" : "Generate"}
-              </Button>
-            )}
-          </div>
-          <p className="sidebar-summary-text">
-            {activeSession?.summary ||
-              "No summary yet — generate one to see what you've talked about."}
-          </p>
         </div>
 
         <ScrollArea className="sidebar-list">
@@ -110,14 +164,18 @@ export default function SessionSidebar({
               className={`session-item ${s.id === activeId ? "active" : ""}`}
               onClick={() => onSelect(s.id)}
             >
-              <input
-                type="color"
-                className="session-color"
-                value={s.color}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => onUpdate(s.id, { color: e.target.value })}
-                title="Change colour"
-              />
+              <button
+                type="button"
+                className="session-icon"
+                style={{ color: s.color }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdate(s.id, { icon: randomIcon(s.icon) });
+                }}
+                title="Change icon"
+              >
+                <SessionIcon name={s.icon} />
+              </button>
 
               {editingId === s.id ? (
                 <Input
@@ -156,6 +214,12 @@ export default function SessionSidebar({
                   <DropdownMenuItem onClick={() => setEditingId(s.id)}>
                     <Pencil className="size-3.5 mr-2" />
                     Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onUpdate(s.id, { icon: randomIcon(s.icon) })}
+                  >
+                    <Shuffle className="size-3.5 mr-2" />
+                    Change icon
                   </DropdownMenuItem>
                   <Dialog>
                     <DialogTrigger asChild>
