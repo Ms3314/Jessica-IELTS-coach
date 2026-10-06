@@ -68,7 +68,7 @@ def _default_color() -> str:
 
 
 def touch(session_id: str) -> None:
-    """Ensure a metadata row exists for the session and bump its updated time."""
+    """Ensure a metadata row exists for the session (does not reorder it)."""
     with _lock:
         cur = _conn.execute(
             "SELECT 1 FROM session_meta WHERE id = ?", (session_id,)
@@ -87,11 +87,16 @@ def touch(session_id: str) -> None:
                     time.time(),
                 ),
             )
-        else:
-            _conn.execute(
-                "UPDATE session_meta SET updated_at = ? WHERE id = ?",
-                (time.time(), session_id),
-            )
+            _conn.commit()
+
+
+def bump(session_id: str) -> None:
+    """Bump the session to the top of the list after real conversation activity."""
+    with _lock:
+        _conn.execute(
+            "UPDATE session_meta SET updated_at = ? WHERE id = ?",
+            (time.time(), session_id),
+        )
         _conn.commit()
 
 

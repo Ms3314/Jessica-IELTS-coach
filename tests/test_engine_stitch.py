@@ -19,9 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 for _name in ("app.asr", "app.tts", "app.agent", "app.sessions"):
     sys.modules.setdefault(_name, types.ModuleType(_name))
 
-# The engine calls sessions.touch() and maybe_auto_rename() after each user turn;
+# The engine calls sessions.bump() and maybe_auto_rename() after each user turn;
 # make them no-ops here.
-sys.modules["app.sessions"].touch = lambda _sid: None
+sys.modules["app.sessions"].bump = lambda _sid: None
 sys.modules["app.sessions"].maybe_auto_rename = lambda _sid, _text: None
 
 import app.engine as engine  # noqa: E402

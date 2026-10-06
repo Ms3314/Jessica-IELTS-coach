@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MessageSquareText, MoreVertical, PanelLeft, Plus, Pencil, Trash2 } from "lucide-react";
+import { MessageSquareText, MoreVertical, Plus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -29,7 +29,6 @@ interface Props {
   sessions: Session[];
   activeId: string;
   open: boolean;
-  onToggle: () => void;
   onSelect: (id: string) => void;
   onNew: () => void;
   onUpdate: (id: string, patch: Partial<Session>) => void;
@@ -40,7 +39,6 @@ export default function SessionSidebar({
   sessions,
   activeId,
   open,
-  onToggle,
   onSelect,
   onNew,
   onUpdate,
@@ -83,9 +81,6 @@ export default function SessionSidebar({
       <aside className={`session-sidebar ${open ? "" : "closed"}`}>
         <div className="sidebar-header">
           <h2>Sessions</h2>
-          <Button variant="ghost" size="icon-xs" onClick={onToggle} aria-label="Close sidebar">
-            <PanelLeft className="size-4" />
-          </Button>
         </div>
 
         <div className="sidebar-summary">

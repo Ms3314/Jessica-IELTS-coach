@@ -143,7 +143,7 @@ class Session:
                     break
 
                 self.events.on_user(text)
-                _get_sessions_db().touch(self.session_id)
+                _get_sessions_db().bump(self.session_id)
                 _get_sessions_db().maybe_auto_rename(self.session_id, text)
                 self.events.on_state("thinking")
 

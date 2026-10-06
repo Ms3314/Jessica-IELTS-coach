@@ -92,7 +92,6 @@ export default function App() {
         sessions={sessions}
         activeId={sessionId}
         open={sidebarOpen}
-        onToggle={() => setSidebarOpen((o) => !o)}
         onSelect={handleSwitch}
         onNew={handleNew}
         onUpdate={handleUpdate}
@@ -109,17 +108,10 @@ export default function App() {
           >
             <PanelLeft className="size-5" />
           </Button>
-          <div>
+          <div className="topbar-title">
             <h1>Jessica</h1>
-            <p className="subtitle">Voice assistant · local agent</p>
           </div>
-          <div className="session-actions">
-            {activeSession && (
-              <span className="active-session-name" style={{ color: sessionColor }}>
-                {activeSession.name}
-              </span>
-            )}
-          </div>
+          <div className="session-actions" />
         </header>
 
         <main className="stage">
