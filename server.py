@@ -20,15 +20,22 @@ import os
 import queue
 import re
 import threading
+import time
 import uuid
 from pathlib import Path
 
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app import agent as agent_module
+from app import settings_store
+from app import exam_report
 from app.engine import Session
+from app.exam_engine import ExamSession
+from app import ielts
+from app.ielts import EXAMS_DIR, ExamLog
 from app.io import WebSocketSource, WebSocketSink, WebSocketHandler, QUIT
 from app import sessions as sessions_db
 
@@ -42,6 +49,9 @@ WEB_DIST = Path(__file__).resolve().parent / "web" / "dist"
 
 # LangGraph thread ids we accept from the browser (used as the SQLite key).
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# IELTS mock-test ids (a timestamp) and the audio files inside one.
+_EXAM_ID = re.compile(r"^\d{8}-\d{6}$")
+_EXAM_AUDIO = re.compile(r"^turn\d{2}(_\d)?\.wav$")
 
 app = FastAPI(title="speakIelts", version="0.1.0")
 
@@ -49,6 +59,37 @@ app = FastAPI(title="speakIelts", version="0.1.0")
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+class KeysUpdate(BaseModel):
+    openai_api_key: str | None = None
+    tavily_api_key: str | None = None
+
+
+@app.get("/settings")
+async def get_settings():
+    """Which API keys are set (masked) and which model is in use. Never the keys."""
+    from app.config import OPENAI_MODEL
+
+    return {"keys": settings_store.status(), "model": OPENAI_MODEL, "provider": "openai"}
+
+
+@app.post("/settings/keys")
+async def save_keys(body: KeysUpdate):
+    """Save API keys entered in Settings and start using them immediately."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    openai_key = (updates.get("openai_api_key") or "").strip()
+    note = None
+    if openai_key:
+        # a slow network call: keep it off the event loop
+        ok, note = await asyncio.get_running_loop().run_in_executor(
+            None, settings_store.check_openai_key, openai_key
+        )
+        if not ok:
+            return JSONResponse({"ok": False, "error": note}, status_code=400)
+    settings_store.save(updates)
+    agent_module.apply_keys(openai_key, (updates.get("tavily_api_key") or "").strip())
+    return {"ok": True, "note": note, "keys": settings_store.status()}
 
 
 class UpdateSession(BaseModel):
@@ -77,6 +118,14 @@ async def get_session_summary(session_id: str):
     return {"summary": sessions_db.get_summary(session_id)}
 
 
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    """The saved conversation of a session, as plain messages."""
+    if not _SESSION_ID.match(session_id):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    return await asyncio.get_running_loop().run_in_executor(None, sessions_db.messages, session_id)
+
+
 @app.post("/sessions/{session_id}/summarize")
 async def summarize_session(session_id: str):
     """Generate (and cache) a one-paragraph summary of the thread."""
@@ -95,6 +144,57 @@ async def delete_session(session_id: str):
     return {"ok": True}
 
 
+@app.get("/ielts/schedule")
+async def ielts_schedule():
+    """The mock test's timings, so the 'before you begin' screen is always accurate."""
+    return ielts.schedule()
+
+
+@app.get("/exams/{session_id}")
+async def get_exams(session_id: str):
+    """IELTS mock tests taken in a session, newest first."""
+    if not _SESSION_ID.match(session_id):
+        return JSONResponse({"error": "invalid session id"}, status_code=400)
+    return exam_report.list_exams(session_id)
+
+
+@app.get("/exams/{session_id}/{exam_id}")
+async def get_exam(session_id: str, exam_id: str):
+    """One mock test: turns, the analysis numbers and the report (if ready)."""
+    if not (_SESSION_ID.match(session_id) and _EXAM_ID.match(exam_id)):
+        return JSONResponse({"error": "invalid id"}, status_code=400)
+    data = exam_report.load_exam(session_id, exam_id)
+    if data is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return data
+
+
+@app.get("/exams/{session_id}/{exam_id}/audio/{name}")
+async def get_exam_audio(session_id: str, exam_id: str, name: str):
+    """One recorded answer, so the user can listen back to it."""
+    if not (_SESSION_ID.match(session_id) and _EXAM_ID.match(exam_id) and _EXAM_AUDIO.match(name)):
+        return JSONResponse({"error": "invalid id"}, status_code=400)
+    path = EXAMS_DIR / session_id / exam_id / name
+    if not path.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(path, media_type="audio/wav")
+
+
+@app.post("/exams/{session_id}/{exam_id}/analyse")
+async def reanalyse_exam(session_id: str, exam_id: str):
+    """Re-run the analysis + report on a saved test (e.g. after changing models)."""
+    if not (_SESSION_ID.match(session_id) and _EXAM_ID.match(exam_id)):
+        return JSONResponse({"error": "invalid id"}, status_code=400)
+    try:
+        log = ExamLog.load(session_id, exam_id)
+    except FileNotFoundError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    threading.Thread(
+        target=exam_report.run_exam_analysis, args=(log, agent_module.model), daemon=True
+    ).start()
+    return {"ok": True}
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -110,6 +210,8 @@ async def ws_endpoint(ws: WebSocket):
     # us play a personalised opening question (random for new sessions, summary-
     # based for returning ones) without an engine thread idling in the background.
     started = False
+    start_settings = {}
+    mode = "chat"
     try:
         while not started:
             raw = await ws.receive_text()
@@ -120,6 +222,10 @@ async def ws_endpoint(ws: WebSocket):
             if isinstance(data, dict):
                 if data.get("type") == "start":
                     started = True
+                    if isinstance(data.get("settings"), dict):
+                        start_settings = data["settings"]
+                    if data.get("mode") == "ielts":
+                        mode = "ielts"
                 elif data.get("type") == "quit":
                     return
     except WebSocketDisconnect:
@@ -131,7 +237,31 @@ async def ws_endpoint(ws: WebSocket):
     source = WebSocketSource(in_q)
     sink = WebSocketSink(out_q)
     handler = WebSocketHandler(out_q)
-    session = Session(source, sink, handler, session_id=session_id, greet=True)
+    if mode == "ielts":
+        # A fixed-structure mock test instead of a free conversation. Once it ends,
+        # the analysis + report run in their own thread so they outlive the socket.
+        def analyse(log):
+            threading.Thread(
+                target=exam_report.run_exam_analysis,
+                args=(log, agent_module.model, handler),
+                daemon=True,
+            ).start()
+
+        sessions_db.update(session_id, name=f"IELTS mock test {time.strftime('%d %b %H:%M')}")
+        session = ExamSession(
+            source, sink, handler, agent_module.model, session_id=session_id, on_complete=analyse
+        )
+    else:
+        session = Session(source, sink, handler, session_id=session_id, greet=True)
+
+    def apply_settings(settings: dict):
+        pause = settings.get("pause_s")
+        if isinstance(pause, (int, float)) and not isinstance(pause, bool):
+            source.set_pause(pause)
+            if hasattr(session, "pause_s"):
+                session.pause_s = pause   # the mock test re-applies it before every answer
+
+    apply_settings(start_settings)
 
     loop = asyncio.get_running_loop()
 
@@ -199,6 +329,10 @@ async def ws_endpoint(ws: WebSocket):
                         logger.info("client asked to quit; closing session")
                         break
 
+                    if isinstance(data, dict) and data.get("type") == "settings":
+                        apply_settings(data)  # changed in the UI mid-call
+                        continue
+
                     if isinstance(data, dict) and data.get("type") == "barge_in":
                         # The user talked over the reply: cancel TTS and drop
                         # any reply audio still queued for the socket.
@@ -210,6 +344,8 @@ async def ws_endpoint(ws: WebSocket):
                             "cancelling the reply", by, heard,
                         )
                         session.interrupt(by, heard)
+                        if not getattr(session, "interruptible", True):
+                            continue  # the examiner can't be talked over: leave her audio alone
                         kept = []
                         while True:
                             try:
@@ -260,4 +396,6 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.environ.get("PORT", "8080"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # Local only by default: this app handles your voice and API keys. Set
+    # HOST=0.0.0.0 to reach it from another device on your network.
+    uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"), port=port)

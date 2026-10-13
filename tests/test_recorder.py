@@ -27,6 +27,9 @@ def _plain():
     recorder with constant fake audio and only care about the VAD/silence logic."""
     rec.NOISE_GATE_RATIO = 0.0
     rec.FLAT_CV = 0.0
+    # the original 1.5 s / 2.5 s pauses these tests' patterns were written for
+    rec.BACKFILL_SILENCE = 15
+    rec.FINAL_SILENCE = 25
 
 
 def _frame_of_call(n):
@@ -327,6 +330,98 @@ def test_floor_survives_reset_between_utterances():
     floor = r.noise_floor
     r.reset()
     assert r.noise_floor == floor
+
+
+# --- configurable pause ---------------------------------------------------------
+
+def _silent_after_speech(r, silent_frames):
+    """Feed a loud 'speech' burst, then quiet frames; return the last result."""
+    rec.speech_probability = lambda c: 0.9 if float(np.abs(c).mean()) > 0.02 else 0.05
+    rec.reset_states = lambda: None
+    loud = (np.ones(rec.FRAME_LEN, dtype=np.int16) * 4000)
+    quiet = np.zeros(rec.FRAME_LEN, dtype=np.int16)
+    result = None
+    for f in [loud] * 6 + [quiet] * silent_frames:
+        out = r.push(f)
+        if out is not None:
+            result = out
+    return result
+
+
+def test_default_pause_is_shorter_than_the_old_2_5_seconds():
+    assert rec.backfill_for(rec.config.FINAL_SILENCE_S) < rec.config.FINAL_SILENCE_S
+    assert rec.config.FINAL_SILENCE_S <= 1.5, "the default wait should be well under 2.5 s"
+
+
+def test_set_pause_changes_when_the_turn_ends():
+    _plain()
+    rec.NOISE_GATE_RATIO = 0.0
+    short, long_ = rec.StreamingRecorder(), rec.StreamingRecorder()
+    short.set_pause(1.0)
+    long_.set_pause(3.0)
+    # 12 quiet frames (1.2 s): past the short pause, not the long one
+    assert isinstance(_silent_after_speech(short, 12), np.ndarray)
+    out = _silent_after_speech(long_, 12)
+    assert not isinstance(out, np.ndarray), "a 3 s pause must not end the turn at 1.2 s"
+
+
+def test_set_pause_is_clamped_to_a_sane_range():
+    r = rec.StreamingRecorder()
+    r.set_pause(0.0)
+    assert r.final_silence * rec.FRAME_MS / 1000 >= rec.MIN_PAUSE_S
+    r.set_pause(999)
+    assert r.final_silence * rec.FRAME_MS / 1000 <= rec.MAX_PAUSE_S
+
+
+def test_pause_cue_always_comes_before_the_end():
+    for s in (0.8, 1.0, 1.2, 2.0, 2.5, 4.0):
+        r = rec.StreamingRecorder()
+        r.set_pause(s)
+        assert 1 <= r.backfill_silence < r.final_silence, s
+
+
+def test_pause_setting_survives_between_utterances():
+    r = rec.StreamingRecorder()
+    r.set_pause(2.0)
+    before = (r.backfill_silence, r.final_silence)
+    r.reset()
+    assert (r.backfill_silence, r.final_silence) == before
+
+
+def test_max_record_is_configurable_per_recorder():
+    r = _prob_recorder([0.9])          # VAD says speech forever
+    _plain()
+    r = rec.StreamingRecorder()
+    r.set_max_record(30)
+    assert r.max_frames == 300
+    out = None
+    for _ in range(299):
+        out = r.push(_frame())
+    assert out is None, "must keep recording past the old 15 s cap"
+    out = r.push(_frame())
+    assert isinstance(out, np.ndarray), "and stop at the configured cap"
+
+
+def test_idle_timeout_gives_up_when_nobody_speaks():
+    rec.speech_probability = lambda _c: 0.05
+    rec.reset_states = lambda: None
+    _plain()
+    r = rec.StreamingRecorder()
+    r.set_idle_timeout(2.0)
+    results = [r.push(_frame()) for _ in range(25)]
+    assert r.done is True, "no speech for 2 s must end the (empty) recording"
+    assert not any(isinstance(x, np.ndarray) for x in results)
+
+
+def test_idle_timeout_does_not_cut_off_someone_who_is_speaking():
+    rec.speech_probability = lambda _c: 0.9
+    rec.reset_states = lambda: None
+    _plain()
+    r = rec.StreamingRecorder()
+    r.set_idle_timeout(2.0)
+    for _ in range(40):
+        r.push(_frame())
+    assert r.done is False
 
 
 if __name__ == "__main__":

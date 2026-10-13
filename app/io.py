@@ -8,6 +8,7 @@ The terminal CLI (main.py) wires MicSource + LocalSink + TerminalHandler.
 The web server (server.py) wires WebSocketSource + WebSocketSink + WebSocketHandler.
 """
 import queue
+import time
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -63,6 +64,10 @@ class EventHandler(ABC):
     def on_error(self, message: str):
         """A recoverable error this turn."""
 
+    def on_exam(self, payload: dict):
+        """IELTS mock-test progress: phase changes, the Part 2 cue card, timers,
+        and the final report. `payload["event"]` says which."""
+
 
 # --- terminal frontends ------------------------------------------------------
 
@@ -112,6 +117,29 @@ class WebSocketSource(AudioSource):
         # True while a BACKFILL was returned and the same utterance continues.
         self._continuing = False
 
+    def set_pause(self, seconds: float, lo: float = None, hi: float = None):
+        """Change how long a quiet spell ends the user's turn (live)."""
+        self.recorder.set_pause(seconds, lo, hi)
+
+    def set_max_record(self, seconds: float):
+        """Change the cap on one recorded turn."""
+        self.recorder.set_max_record(seconds)
+
+    def set_idle_timeout(self, seconds):
+        """Give up on a turn after this long with no speech at all."""
+        self.recorder.set_idle_timeout(seconds)
+
+    def flush(self):
+        """Throw away mic audio queued while we were busy talking."""
+        while True:
+            try:
+                item = self._in_q.get_nowait()
+            except queue.Empty:
+                return
+            if item is QUIT:           # never swallow a shutdown request
+                self._in_q.put(QUIT)
+                return
+
     def listen(self):
         # Only start a fresh recording for a new turn. After a BACKFILL the
         # recorder keeps the audio it has already collected.
@@ -141,11 +169,22 @@ class WebSocketSource(AudioSource):
 class WebSocketSink:
     """Forwards synthesized TTS audio (float32 24 kHz) over the WebSocket."""
 
+    SAMPLE_RATE = 24000
+
     def __init__(self, out_q: "queue.Queue"):
         self._out_q = out_q
+        self._tail_end = 0.0  # monotonic time the browser should run out of audio
 
     def write(self, audio: np.ndarray):
-        self._out_q.put(np.asarray(audio, dtype=np.float32).tobytes())
+        audio = np.asarray(audio, dtype=np.float32)
+        self._out_q.put(audio.tobytes())
+        # Kokoro synthesizes far faster than real time, so the browser is usually
+        # still playing long after the last write. Keep a ledger of that backlog.
+        self._tail_end = max(time.monotonic(), self._tail_end) + len(audio) / self.SAMPLE_RATE
+
+    def remaining(self) -> float:
+        """Seconds of already-sent audio the browser should still be playing."""
+        return max(0.0, self._tail_end - time.monotonic())
 
     def drain(self):
         # The browser owns playback timing; nothing to wait for here.
@@ -172,6 +211,9 @@ class WebSocketHandler(EventHandler):
         if idx is not None:
             event["idx"] = idx
         self._send(event)
+
+    def on_exam(self, payload):
+        self._send({"type": "exam", **payload})
 
     def on_pause(self):
         # A dedicated event (not a "state") so the client can show a cue

@@ -2,42 +2,56 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* --- shadcn theme tokens (this app is dark-only, so :root holds the dark
-       palette — no .dark class needed) -------------------------------------- */
+/* --- theme tokens (light, plain business palette) ---------------------------------- */
 :root {
-  --radius: 0.625rem;
+  --radius: 0.5rem;
 
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.185 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.185 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.62 0.19 259);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.23 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.23 0 0);
-  --muted-foreground: oklch(0.66 0 0);
-  --accent: oklch(0.25 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.62 0.21 25);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.62 0.19 259 / 55%);
-  --meter-ok: oklch(0.696 0.17 162.48);
-  --meter-warn: oklch(0.795 0.184 86.047);
-  --meter-clip: var(--destructive);
-  --channel-mute: var(--destructive);
-  --channel-solo: oklch(0.795 0.184 86.047);
-  --channel-monitor: oklch(0.623 0.214 259.815);
-  --meter-ok-foreground: color-mix(in oklch, var(--meter-ok), black 40%);
-  --meter-warn-foreground: color-mix(in oklch, var(--meter-warn), black 40%);
-  --meter-clip-foreground: color-mix(in oklch, var(--meter-clip), black 40%);
-  --channel-mute-foreground: color-mix(in oklch, var(--channel-mute), black 40%);
-  --channel-solo-foreground: color-mix(in oklch, var(--channel-solo), black 40%);
-  --channel-monitor-foreground: color-mix(in oklch, var(--channel-monitor), black 40%);
+  --background: #ffffff;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --primary: #111827;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f4f6;
+  --secondary-foreground: #111827;
+  --muted: #f3f4f6;
+  --muted-foreground: #6b7280;
+  --accent: #f3f4f6;
+  --accent-foreground: #111827;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+  --border: #e5e7eb;
+  --input: #d1d5db;
+  --ring: rgb(17 24 39 / 28%);
+
+  /* level meter + status colours */
+  --meter-ok: #15803d;
+  --meter-warn: #b45309;
+  --meter-clip: #b91c1c;
+  --channel-mute: #b91c1c;
+  --channel-solo: #b45309;
+  --channel-monitor: #1d4ed8;
+  --meter-ok-foreground: #14532d;
+  --meter-warn-foreground: #78350f;
+  --meter-clip-foreground: #7f1d1d;
+  --channel-mute-foreground: #7f1d1d;
+  --channel-solo-foreground: #78350f;
+  --channel-monitor-foreground: #1e3a8a;
+
+  /* app surfaces */
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --sidebar: #f9fafb;
+  --line: #e5e7eb;
+  --text: #111827;
+  --text-2: #4b5563;
+  --text-3: #9ca3af;
+  --ok: #15803d;
+  --warn: #b45309;
+  --danger: #b91c1c;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -86,344 +100,53 @@
   --meter-clip: var(--meter-clip);
 }
 
-/* --- app palette --------------------------------------------------------- */
-:root {
-  --app-bg: #04050a;
-  --app-panel: #0b0d14;
-  --app-text: #eef1f8;
-  --app-muted: #7d8598;
-  color-scheme: dark;
-}
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
-}
-
-body {
-  background: radial-gradient(1100px 760px at 70% -10%, #101528 0%, var(--app-bg) 62%);
-  color: var(--app-text);
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-
-/* --- shell: sidebar + main area ----------------------------------------- */
-.app-shell {
-  max-width: 1280px;
-  margin: 0 auto;
-  height: 100%;
-  display: flex;
-  padding: 16px;
-  gap: 16px;
-}
-
-.main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.topbar h1 {
-  margin: 0;
-  font-size: 22px;
-  letter-spacing: 0.5px;
-}
-.topbar .subtitle {
-  margin: 2px 0 0;
-  color: var(--app-muted);
-  font-size: 13px;
-}
-.session-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.active-session-name {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* --- session sidebar ----------------------------------------------------- */
-.session-sidebar {
-  width: 260px;
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: color-mix(in srgb, var(--app-panel) 80%, transparent);
-  border: 1px solid rgb(255 255 255 / 7%);
-  border-radius: 14px;
-  padding: 14px;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-.session-sidebar.closed {
-  display: none;
-}
-
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.sidebar-header h2 {
-  margin: 0;
-  font-size: 14px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--app-muted);
-}
-
-.sidebar-list {
-  flex: 1;
-  min-height: 0;
-}
-
-.session-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 6px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.session-item:hover {
-  background: rgb(255 255 255 / 5%);
-}
-.session-item.active {
-  background: rgb(255 255 255 / 9%);
-}
-
-.session-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 6px;
-  padding: 0;
-  background: none;
-  cursor: pointer;
-  flex: 0 0 auto;
-  opacity: 0.9;
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-.session-item:hover .session-icon {
-  opacity: 1;
-}
-.session-icon:hover {
-  transform: scale(1.15);
-}
-
-.session-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.session-name-input {
-  flex: 1;
-  min-width: 0;
-  height: 28px;
-  font-size: 13px;
-  padding: 0 6px;
-}
-.session-menu {
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-.session-item:hover .session-menu {
-  opacity: 1;
-}
-
-/* --- blob stage ---------------------------------------------------------- */
-.stage {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 0 48px;
-}
-
-.visualizer-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  padding: 0 24px;
-}
-
-/* Italic caption floating just below the blob — no boxes. */
-.caption-wrap {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(720px, 92%);
-  text-align: center;
-  pointer-events: none;
-}
-.caption {
-  margin: 0;
-  font-style: italic;
-  color: var(--app-muted);
-  font-size: 15px;
-  line-height: 1.55;
-  animation: pop 0.18s ease-out;
+/* --- base ------------------------------------------------------------------------------ */
+@layer base {
+  /* Tailwind v4 draws borders in currentColor (black) unless told otherwise */
+  *,
+  ::after,
+  ::before,
+  ::backdrop {
+    border-color: var(--border);
+  }
+  * {
+    outline-color: color-mix(in srgb, var(--ring) 60%, transparent);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
 @keyframes pop {
   from {
-    transform: translateY(6px);
     opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
+    transform: translateY(3px);
   }
 }
-
-.error-banner {
-  position: absolute;
-  bottom: 52px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #ef575733;
-  border: 1px solid #ef5757;
-  color: #ffd9d9;
-  padding: 6px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-/* --- controls ------------------------------------------------------------ */
-.controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.control-cluster {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--app-muted);
-  font-size: 14px;
-}
-.status .dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--session-color);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--session-color) 25%, transparent);
-}
-.status.paused {
-  font-style: italic;
-}
-
-.mic-button {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--session-color);
-  color: white;
-  box-shadow: 0 0 24px color-mix(in srgb, var(--session-color) 35%, transparent);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-.mic-button:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 32px color-mix(in srgb, var(--session-color) 45%, transparent);
-}
-
-/* --- summary panel (main space) ------------------------------------------ */
-.summary-panel {
-  background: color-mix(in srgb, var(--app-panel) 70%, transparent);
-  border: 1px solid rgb(255 255 255 / 7%);
-  border-radius: 14px;
-  padding: 14px 18px;
-}
-.summary-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.summary-panel-head h2 {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--app-muted);
-}
-.summary-panel-text {
-  margin: 0;
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: #b6bdcb;
-  max-height: 4.8em;
-  overflow-y: auto;
-}
-
-/* --- narrow screens ------------------------------------------------------ */
-@media (max-width: 760px) {
-  .app-shell {
-    padding: 12px;
-    gap: 12px;
-  }
-  .session-sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 280px;
-    z-index: 50;
-    border-radius: 0 14px 14px 0;
-  }
-  .session-sidebar.closed {
-    display: none;
-  }
-  .topbar h1 {
-    font-size: 18px;
-  }
-  .topbar .subtitle {
-    display: none;
+@keyframes blink {
+  50% {
+    opacity: 0.35;
   }
 }
 
-.dark {
-  --meter-ok: oklch(0.765 0.177 163.223);
-  --meter-warn: oklch(0.852 0.199 91.936);
-  --meter-clip: var(--destructive);
-  --channel-mute: var(--destructive);
-  --channel-solo: oklch(0.852 0.199 91.936);
-  --channel-monitor: oklch(0.707 0.165 254.624);
-  --meter-ok-foreground: var(--meter-ok);
-  --meter-warn-foreground: var(--meter-warn);
-  --meter-clip-foreground: var(--meter-clip);
-  --channel-mute-foreground: var(--channel-mute);
-  --channel-solo-foreground: var(--channel-solo);
-  --channel-monitor-foreground: var(--channel-monitor);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::after,
+  ::before {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

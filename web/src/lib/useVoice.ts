@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { AudioEngine } from "./audio";
+import { INITIAL_EXAM, examReducer, type ExamEvent } from "./exam";
+import { addAgentSentence, addUserText, markInterrupted, type Line } from "./transcript";
 
 export type EngineState =
   | "idle"
@@ -12,7 +14,10 @@ export type EngineState =
 const WS_BASE = `${location.protocol === "https:" ? "wss" : "ws"}://${
   location.host
 }/ws`;
-const ACTIVE_SESSION_KEY = "speakielts.activeSession";
+export const ACTIVE_SESSION_KEY = "speakielts.activeSession";
+// Loud-enough checks (one per 120 ms) in a row before talking over Jessica cuts
+// her off. ~0.6 s: a door slam or a pen drop dies out sooner, real speech doesn't.
+const BARGE_TICKS = 5;
 
 /** The browser's active voice session (a LangGraph thread in the server's SQLite). */
 function loadActiveSessionId(): string {
@@ -26,9 +31,13 @@ function loadActiveSessionId(): string {
 export interface VoiceOptions {
   /** Allow cutting Jessica off by talking over her (the Stop button always works). */
   voiceInterrupt: boolean;
+  /** Seconds of quiet before the server decides the user has finished. */
+  pauseS: number;
+  /** "chat" = free conversation, "ielts" = the mock test. */
+  mode: "chat" | "ielts";
 }
 
-export function useVoice({ voiceInterrupt }: VoiceOptions) {
+export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
   const engineRef = useRef<AudioEngine | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Sent as ?session=... so reconnects resume the same conversation memory.
@@ -42,8 +51,19 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
 
   const [connected, setConnected] = useState(false);
   const [started, setStarted] = useState(false);
+  // True from pressing start until the first sound from Jessica reaches the
+  // browser: the server needs a moment to produce it, and until then the screen
+  // would look live while nothing is audible.
+  const [preparing, setPreparing] = useState(false);
+  const preparingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPreparing = useCallback(() => {
+    if (preparingTimerRef.current) {
+      clearTimeout(preparingTimerRef.current);
+      preparingTimerRef.current = null;
+    }
+    setPreparing(false);
+  }, []);
   const [state, setState] = useState<EngineState>("idle");
-  const [userText, setUserText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,6 +85,26 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
   micMutedRef.current = micMuted;
   const voiceInterruptRef = useRef(voiceInterrupt);
   voiceInterruptRef.current = voiceInterrupt;
+  const pauseSRef = useRef(pauseS);
+  pauseSRef.current = pauseS;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
+  // IELTS mock test progress, driven by the server's "exam" events.
+  const [exam, dispatchExam] = useReducer(examReducer, INITIAL_EXAM);
+  const examRef = useRef(exam);
+  examRef.current = exam;
+  // The conversation so far (shown live during the call).
+  const [transcript, setTranscript] = useState<Line[]>([]);
+  const freshLineRef = useRef(true);
+
+  // Changing the pause in Settings mid-call takes effect immediately.
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "settings", pause_s: pauseS }));
+    }
+  }, [pauseS]);
 
   const clearPause = useCallback(() => {
     if (pauseTimerRef.current) {
@@ -106,6 +146,7 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
       ignoreTimerRef.current = null;
     }, 1500);
     engineRef.current?.stopPlayback(); // silence Jessica immediately
+    setTranscript((prev) => markInterrupted(prev));
     // Keep capturing; the server will record the continuation from here.
     captureRef.current = true;
     syncCapturing();
@@ -146,6 +187,7 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
         setConnected(true);
       };
       ws.onclose = () => {
+        clearPreparing();
         setConnected(false);
         // The server is gone, so we're no longer capturing until a new
         // session's state arrives after reconnect.
@@ -162,6 +204,7 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
           const msg = JSON.parse(ev.data);
           if (msg.type === "state") {
             const s = msg.state as EngineState;
+            if (s !== "speaking") freshLineRef.current = true; // next sentence starts a new line
             // Mic stays live through transcribing/thinking so a continuation
             // after an early finalize still reaches the server.
             captureRef.current =
@@ -169,7 +212,12 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
             if (s !== "listening") clearPause();
             setState(s);
             syncCapturing();
+          } else if (msg.type === "exam") {
+            dispatchExam({ type: "event", event: msg as ExamEvent, now: Date.now() });
           } else if (msg.type === "agent") {
+            const fresh = freshLineRef.current;
+            setTranscript((prev) => addAgentSentence(prev, msg.text as string, fresh));
+            freshLineRef.current = false;
             // Sentence boundary in the audio stream: lets us tell the server
             // which sentences were really played if the user interrupts.
             if (typeof msg.idx === "number" && !ignoreAudioRef.current) {
@@ -178,16 +226,16 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
           } else if (msg.type === "pause") {
             showPause();
           } else if (msg.type === "user") {
-            // Voice-only UI: keep just the latest thing the user said, shown
-            // as a grey caption (no chat bubbles).
-            setUserText(msg.text as string);
+            setTranscript((prev) => addUserText(prev, msg.text as string));
           } else if (msg.type === "error") {
+            clearPreparing();
             setError(msg.message);
           }
         } else if (!ignoreAudioRef.current) {
           // binary TTS PCM (Float32, 24 kHz) — agent voice always plays
           const f32 = new Float32Array(ev.data as ArrayBuffer);
           engine.playTTS(f32);
+          clearPreparing(); // the first voice is here: show the live screen
         }
       };
     };
@@ -202,7 +250,7 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
       engine.stop();
       wsRef.current?.close();
     };
-  }, [syncCapturing, clearPause, showPause]);
+  }, [syncCapturing, clearPause, showPause, clearPreparing]);
 
   // Voice-activity + "Jessica is audible" watchdog. The server emits "idle"
   // and "listening" as soon as synthesis finishes — but the browser is still
@@ -234,7 +282,7 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
         // (echo-cancelled) playback bleed before counting it as an interruption.
         const threshold = speakingNow ? Math.max(0.1, engine.mouth * 0.5) : 0.1;
         bargeTicksRef.current = mic > threshold ? bargeTicksRef.current + 1 : 0;
-        if (bargeTicksRef.current >= 3) bargeIn("voice");
+        if (bargeTicksRef.current >= BARGE_TICKS) bargeIn("voice");
       } else {
         bargeTicksRef.current = 0;
       }
@@ -251,8 +299,20 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
       await engineRef.current?.init();
       engineReadyRef.current = true;
       setStarted(true);
+      setPreparing(true);
+      // never leave the loader up forever if the voice doesn't come
+      if (preparingTimerRef.current) clearTimeout(preparingTimerRef.current);
+      preparingTimerRef.current = setTimeout(() => setPreparing(false), 25000);
+      if (modeRef.current === "ielts") dispatchExam({ type: "reset" });
+      setTranscript([]);
       // Tell the server to spin up the engine and play the opening question.
-      wsRef.current?.send(JSON.stringify({ type: "start" }));
+      wsRef.current?.send(
+        JSON.stringify({
+          type: "start",
+          mode: modeRef.current,
+          settings: { pause_s: pauseSRef.current },
+        })
+      );
       syncCapturing();
     } catch {
       setError("Microphone permission denied");
@@ -266,6 +326,8 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
     captureRef.current = false;
     engineReadyRef.current = false;
     ignoreAudioRef.current = false;
+    clearPreparing();
+    dispatchExam({ type: "ended" }); // hanging up mid-test ends it (unfinished)
     if (ignoreTimerRef.current) {
       clearTimeout(ignoreTimerRef.current);
       ignoreTimerRef.current = null;
@@ -281,7 +343,7 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
     }
     ws?.close();
     engineRef.current?.stop();
-  }, [clearPause]);
+  }, [clearPause, clearPreparing]);
 
   const switchSession = useCallback(
     (id: string) => {
@@ -295,13 +357,15 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
       clearPause();
       setVoiceActive(false);
       setTtsActive(false);
-      setUserText(null);
+      setTranscript([]);
       setError(null);
       setState("idle");
       setStarted(false);
+      clearPreparing();
+      dispatchExam({ type: "reset" });
       wsRef.current?.close();
     },
-    [clearPause]
+    [clearPause, clearPreparing]
   );
 
   const newSession = useCallback(() => {
@@ -309,6 +373,42 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
     // socket's onclose schedules it) so the request carries the new session.
     switchSession(crypto.randomUUID());
   }, [switchSession]);
+
+  // Once a test is over the report is made on the server and may arrive after
+  // the socket is gone, so fetch it until it appears.
+  const { complete, examId, report: examReport, reportError } = exam;
+  useEffect(() => {
+    if (!complete || !examId || examReport || reportError) return;
+    let stopped = false;
+    const deadline = Date.now() + 10 * 60 * 1000;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/exams/${encodeURIComponent(sessionRef.current)}/${encodeURIComponent(examId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.report && !stopped) {
+            dispatchExam(
+              data.report.error
+                ? { type: "reportError", message: data.report.error }
+                : { type: "report", report: data.report }
+            );
+            return;
+          }
+        }
+      } catch {
+        /* server restarting: keep trying */
+      }
+      if (!stopped && Date.now() < deadline) timer = setTimeout(poll, 3000);
+      else if (!stopped) dispatchExam({ type: "reportError", message: "The report is taking too long. Check back later." });
+    };
+    let timer = setTimeout(poll, 1500);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [complete, examId, examReport, reportError]);
+
+  const resetExam = useCallback(() => dispatchExam({ type: "reset" }), []);
 
   const toggleMicMute = useCallback(() => {
     setMicMuted((prev) => {
@@ -322,8 +422,8 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
   return {
     connected,
     started,
+    preparing,
     state,
-    userText,
     paused,
     voiceActive,
     ttsActive,
@@ -331,6 +431,9 @@ export function useVoice({ voiceInterrupt }: VoiceOptions) {
     error,
     engine: engineRef,
     sessionId,
+    exam,
+    transcript,
+    resetExam,
     start,
     quit,
     stopReply,

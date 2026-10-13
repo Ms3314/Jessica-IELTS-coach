@@ -7,3 +7,4 @@ tts_out
 web/node_modules/
 web/dist/
 checkpoints.db*
+data/

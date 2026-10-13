@@ -252,6 +252,26 @@ def delete(session_id: str) -> None:
         # If the checkpointer doesn't expose delete or the thread is missing,
         # the metadata row is already gone — that's the important part.
         pass
+    _delete_exam_recordings(session_id)
+
+
+def _delete_exam_recordings(session_id: str) -> None:
+    """Mock-test audio is personal data: it goes away with its session."""
+    import shutil
+
+    from app.ielts import EXAMS_DIR
+
+    target = (EXAMS_DIR / session_id).resolve()
+    if target.parent == EXAMS_DIR.resolve() and target.is_dir():
+        shutil.rmtree(target, ignore_errors=True)
+
+
+def messages(session_id: str) -> list[dict]:
+    """The saved conversation as plain messages (empty for a new session)."""
+    from app.history import to_chat_messages
+
+    state = agent.get_state({"configurable": {"thread_id": session_id}})
+    return to_chat_messages(state.values.get("messages", [])) if state else []
 
 
 def auto_summarize(session_id: str) -> Optional[str]:

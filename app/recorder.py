@@ -21,8 +21,16 @@ logger = logging.getLogger("speakIelts.recorder")
 # We expect 16 kHz mono int16 from the browser; VAD wants 16 kHz too.
 SAMPLE_RATE = 16000
 FRAME_MS = 100            # process audio in 100 ms frames
-BACKFILL_SILENCE_S = 1.5  # first pause: notify the UI, keep listening
-FINAL_SILENCE_S = 2.5     # second pause: finalize the clip (stitching recovers)
+FINAL_SILENCE_S = config.FINAL_SILENCE_S  # second pause: finalize the clip (stitching recovers)
+MIN_PAUSE_S, MAX_PAUSE_S = 0.8, 4.0       # the range the user may choose
+
+
+def backfill_for(final_s: float) -> float:
+    """First pause (UI cue only, keep listening): shortly before the clip ends."""
+    return max(0.6, min(1.5, final_s - 0.5))
+
+
+BACKFILL_SILENCE_S = backfill_for(FINAL_SILENCE_S)
 MIN_SPEECH_S = 0.3        # require this much real speech (a cough isn't speech)
 MAX_RECORD_S = config.MAX_RECORD_S  # safety cap so a noisy room can't record forever
 PRE_ROLL_S = 0.3          # keep this much audio before speech started
@@ -50,8 +58,8 @@ FLAT_WINDOW = 30          # frames (3 s) of continuous speech to examine
 FLAT_CV = 0.15            # loudness std/mean below this = flat = noise
 
 FRAME_LEN = int(SAMPLE_RATE * FRAME_MS / 1000)                  # 1600 samples
-BACKFILL_SILENCE = int(BACKFILL_SILENCE_S * 1000 / FRAME_MS)    # 15 frames
-FINAL_SILENCE = int(FINAL_SILENCE_S * 1000 / FRAME_MS)          # 25 frames
+BACKFILL_SILENCE = int(BACKFILL_SILENCE_S * 1000 / FRAME_MS)    # frames
+FINAL_SILENCE = int(FINAL_SILENCE_S * 1000 / FRAME_MS)          # frames
 MIN_SPEECH = int(MIN_SPEECH_S * 1000 / FRAME_MS)                # 3 frames
 MAX_FRAMES = int(MAX_RECORD_S * 1000 / FRAME_MS)                # 150 frames
 PRE_ROLL = int(PRE_ROLL_S * 1000 / FRAME_MS)                    # 3 frames
@@ -72,7 +80,31 @@ class StreamingRecorder:
         # reset(). None until CAL_FRAMES frames have been heard.
         self.noise_floor = None
         self._cal_levels = []
+        # Pause lengths (frames) are per recorder so the user can change them live.
+        self.backfill_silence = BACKFILL_SILENCE
+        self.final_silence = FINAL_SILENCE
+        self.max_frames = MAX_FRAMES
+        self.idle_frames = None  # frames of pure silence before giving up (None: use max)
         self.reset()
+
+    def set_idle_timeout(self, seconds) -> None:
+        """Give up on a turn where nothing at all was said for this long."""
+        self.idle_frames = None if seconds is None else max(1, round(seconds * 1000 / FRAME_MS))
+
+    def set_max_record(self, seconds: float) -> None:
+        """Cap on one recorded turn (exam Part 2 needs far more than a chat turn)."""
+        self.max_frames = max(1, round(seconds * 1000 / FRAME_MS))
+
+    def set_pause(self, seconds: float, lo: float = None, hi: float = None) -> None:
+        """How long a quiet spell must last before the clip is finalized.
+
+        lo/hi override the user-facing range (the exam picks its own).
+        """
+        seconds = min(hi or MAX_PAUSE_S, max(lo or MIN_PAUSE_S, float(seconds)))
+        self.final_silence = max(1, round(seconds * 1000 / FRAME_MS))
+        self.backfill_silence = max(
+            1, round(backfill_for(seconds) * 1000 / FRAME_MS)
+        )
 
     def reset(self):
         self._pending = np.zeros(0, dtype=np.int16)
@@ -167,7 +199,7 @@ class StreamingRecorder:
             # finalize — the user may just be thinking mid-answer. Require a
             # minimum amount of real speech so a cough/blip isn't announced.
             if (
-                self.silent >= BACKFILL_SILENCE
+                self.silent >= self.backfill_silence
                 and self.speech_frames >= MIN_SPEECH
                 and not self.backfill_fired
             ):
@@ -180,11 +212,17 @@ class StreamingRecorder:
 
             # Second pause threshold: the user is done. (_finalize() itself
             # rejects clips with too little speech, as before.)
-            if self.silent >= FINAL_SILENCE and self.speech_frames > 0:
+            if self.silent >= self.final_silence and self.speech_frames > 0:
                 return self._finalize()
 
-        if len(self.frames) >= MAX_FRAMES:
+        if len(self.frames) >= self.max_frames:
             return self._finalize()
+        if (
+            self.idle_frames is not None
+            and self.speech_frames == 0
+            and len(self.frames) >= self.idle_frames
+        ):
+            return self._finalize()  # nobody spoke: rejected as "no utterance"
         return None
 
     def _vad_frame(self, frame) -> bool:

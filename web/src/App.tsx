@@ -1,181 +1,227 @@
-import { useCallback, useEffect, useState } from "react";
-import { PanelLeft } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import CallView from "@/components/views/CallView";
+import HistorySidebar from "@/components/HistorySidebar";
+import ReportView from "@/components/exam/ReportView";
 import SettingsDialog from "@/components/SettingsDialog";
-import { BarVisualizer } from "@/components/ui/bar-visualizer";
-import Controls from "@/components/Controls";
-import SessionSidebar, { type Session } from "@/components/SessionSidebar";
-import { Button } from "@/components/ui/button";
+import StartView from "@/components/views/StartView";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ChatReview, TestReview } from "@/components/views/ReviewView";
+import {
+  deleteSession,
+  fetchExams,
+  fetchMessages,
+  fetchServerSettings,
+  fetchSessions,
+  updateSession,
+  type ChatMessage,
+  type ExamListItem,
+  type Mode,
+  type ServerSettings,
+  type SessionMeta,
+} from "@/lib/api";
+import { sessionMode } from "@/lib/history";
 import { useSettings } from "@/lib/settings";
 import { useVoice } from "@/lib/useVoice";
 
+interface SavedHistory {
+  loading: boolean;
+  messages: ChatMessage[];
+  exams: ExamListItem[];
+}
+
+/** What has already happened in a session (its transcript, and any mock tests). */
+function useSessionHistory(sessionId: string, reloadKey: number): SavedHistory {
+  const [state, setState] = useState<SavedHistory>({ loading: true, messages: [], exams: [] });
+  useEffect(() => {
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true }));
+    Promise.all([fetchMessages(sessionId), fetchExams(sessionId)]).then(([messages, exams]) => {
+      if (!cancelled) setState({ loading: false, messages, exams });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, reloadKey]);
+  return state;
+}
+
 export default function App() {
   const { settings, update: updateSettings } = useSettings();
-  const {
-    connected,
-    started,
-    state,
-    userText,
-    paused,
-    voiceActive,
-    ttsActive,
-    micMuted,
-    error,
-    engine,
-    sessionId,
-    start,
-    quit,
-    stopReply,
-    newSession,
-    switchSession,
-    toggleMicMute,
-  } = useVoice({ voiceInterrupt: settings.voiceInterrupt });
+  const [mode, setMode] = useState<Mode>("chat");
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [server, setServer] = useState<ServerSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
 
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const voice = useVoice({ voiceInterrupt: settings.voiceInterrupt, pauseS: settings.pauseS, mode });
+  const { connected, started, sessionId, exam, resetExam, newSession, switchSession, start, quit } = voice;
 
-  const refreshSessions = useCallback(async () => {
-    try {
-      const res = await fetch("/sessions");
-      const data = await res.json();
-      setSessions(data);
-    } catch {
-      // ignore — the socket will reconnect
-    }
-  }, []);
+  const refreshSessions = useCallback(async () => setSessions(await fetchSessions()), []);
+  const refreshServer = useCallback(async () => setServer(await fetchServerSettings()), []);
 
+  useEffect(() => {
+    refreshServer();
+  }, [refreshServer]);
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions, sessionId]);
 
-  // The server auto-summarises a session when its socket closes. After a
-  // reconnect, give it a moment and pull the fresh summary in.
+  // When a call ends: reload its saved transcript now, and again once the server has
+  // written its summary a moment later.
+  const wasStarted = useRef(false);
   useEffect(() => {
-    if (!connected) return;
-    const t = setTimeout(refreshSessions, 2500);
-    return () => clearTimeout(t);
-  }, [connected, refreshSessions]);
+    if (wasStarted.current && !started) {
+      setHistoryKey((k) => k + 1);
+      refreshSessions();
+      const t = setTimeout(() => {
+        refreshSessions();
+        setHistoryKey((k) => k + 1);
+      }, 2500);
+      return () => clearTimeout(t);
+    }
+    wasStarted.current = started;
+  }, [started, refreshSessions]);
 
+  const history = useSessionHistory(sessionId, historyKey);
   const activeSession = sessions.find((s) => s.id === sessionId);
-  const sessionColor = activeSession?.color || "#3b82f6";
+  const needsKey = server !== null && !server.keys.openai_api_key.set;
 
-  const handleUpdate = useCallback(
-    async (id: string, patch: Partial<Session>) => {
-      await fetch(`/sessions/${id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
+  // --- sidebar actions ---
+  const openNew = useCallback(
+    (next: Mode) => {
+      setMode(next);
+      resetExam();
+      newSession();
+    },
+    [newSession, resetExam]
+  );
+  const openSession = useCallback(
+    (s: SessionMeta) => {
+      setMode(sessionMode(s));
+      resetExam();
+      switchSession(s.id);
+    },
+    [resetExam, switchSession]
+  );
+  const rename = useCallback(
+    async (id: string, name: string) => {
+      await updateSession(id, { name });
       refreshSessions();
     },
     [refreshSessions]
   );
-
-  const handleDelete = useCallback(
-    async (id: string) => {
-      if (!confirm("Delete this session? This cannot be undone.")) return;
-      await fetch(`/sessions/${id}`, { method: "DELETE" });
-      if (id === sessionId) newSession();
-      else refreshSessions();
-    },
-    [sessionId, newSession, refreshSessions]
-  );
-
-  const handleSwitch = useCallback(
-    (id: string) => {
-      switchSession(id);
+  const remove = useCallback(
+    async (s: SessionMeta) => {
+      if (!confirm(`Delete "${s.name}"? This also deletes its recordings and can't be undone.`)) return;
+      await deleteSession(s.id);
+      if (s.id === sessionId) openNew(mode);
       refreshSessions();
     },
-    [switchSession, refreshSessions]
+    [mode, openNew, refreshSessions, sessionId]
   );
 
-  const handleNew = useCallback(() => {
-    newSession();
-    refreshSessions();
-  }, [newSession, refreshSessions]);
+  // --- what the workspace shows ---
+  const title = started
+    ? mode === "ielts"
+      ? "IELTS mock test"
+      : "Conversation"
+    : activeSession?.name ?? (mode === "ielts" ? "New IELTS test" : "New conversation");
 
-
-
-  // While reply audio is still playing, keep the "speaking" look even if the
-  // server already moved on to "idle"/"listening" (synthesis ends before
-  // playback does).
-  const visualState = ttsActive ? ("speaking" as const) : state;
-
-  return (
-    <div className="app-shell">
-      <SessionSidebar
-        sessions={sessions}
-        activeId={sessionId}
-        open={sidebarOpen}
-        onSelect={handleSwitch}
-        onNew={handleNew}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
+  let content;
+  if (started) {
+    content = (
+      <CallView
+        mode={mode}
+        state={voice.state}
+        preparing={voice.preparing}
+        paused={voice.paused}
+        voiceActive={voice.voiceActive}
+        micMuted={voice.micMuted}
+        error={voice.error}
+        transcript={voice.transcript}
+        exam={exam}
+        source={voice.engine.current?.visualSource ?? null}
+        onStop={voice.stopReply}
+        onEnd={quit}
+        onToggleMic={voice.toggleMicMute}
       />
-
-      <div className="main">
-        <header className="topbar">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setSidebarOpen((o) => !o)}
-            aria-label="Toggle sessions"
-          >
-            <PanelLeft className="size-5" />
-          </Button>
-          <div className="topbar-title">
-            <h1>Jessica</h1>
-          </div>
-          <div className="session-actions">
-            <SettingsDialog settings={settings} onChange={updateSettings} />
-          </div>
-        </header>
-
-        <section className="summary-panel">
-          <div className="summary-panel-head">
-            <h2>Summary</h2>
-          </div>
-          <p className="summary-panel-text">
-            {activeSession?.summary ||
-              "Your conversation summary will appear here after the call ends."}
-          </p>
-        </section>
-
-        <main className="stage">
-          <div className="visualizer-wrap">
-            <BarVisualizer
-              aria-label="Voice activity"
-              className="h-40 w-full max-w-md"
-              style={{ color: sessionColor }}
-              source={engine.current?.visualSource ?? null}
-              mirrored
-              idle="pulse"
-            />
-          </div>
-          {error && <div className="error-banner">{error}</div>}
-
-          <div className="caption-wrap">
-            {userText && (
-              <p key={userText} className="caption" aria-live="polite">
-                {userText}
-              </p>
-            )}
-          </div>
-        </main>
-
-        <Controls
-          connected={connected}
-          started={started}
-          state={visualState}
-          paused={paused}
-          voiceActive={voiceActive}
-          micMuted={micMuted}
-          color={sessionColor}
-          onStart={start}
-          onQuit={quit}
-          onStop={stopReply}
-          onToggleMicMute={toggleMicMute}
+    );
+  } else if (mode === "ielts" && exam.complete) {
+    // the test that just ended: its report (arrives once analysis finishes)
+    content = (
+      <div className="min-h-0 flex-1 overflow-y-auto p-7">
+        <ReportView
+          sessionId={sessionId}
+          examId={exam.examId}
+          report={exam.report}
+          error={exam.reportError}
+          onAgain={() => openNew("ielts")}
+          onChat={() => openNew("chat")}
         />
       </div>
-    </div>
+    );
+  } else if (history.loading) {
+    content = (
+      <div className="mx-auto grid w-full max-w-3xl gap-4 p-7">
+        <Skeleton className="h-10 w-1/2" />
+        <Skeleton className="h-24" />
+        <Skeleton className="h-24" />
+      </div>
+    );
+  } else if (mode === "chat" && history.messages.length > 0) {
+    content = <ChatReview session={activeSession} messages={history.messages} onContinue={start} />;
+  } else if (mode === "ielts" && history.exams.length > 0) {
+    content = <TestReview sessionId={sessionId} onAgain={() => openNew("ielts")} onChat={() => openNew("chat")} />;
+  } else {
+    content = (
+      <StartView
+        mode={mode}
+        connected={connected}
+        needsKey={needsKey}
+        onStart={start}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+    );
+  }
+
+  return (
+    <TooltipProvider>
+      <div className="grid h-full grid-cols-[288px_minmax(0,1fr)] max-md:grid-cols-1 max-md:grid-rows-[auto_minmax(0,1fr)]">
+        <HistorySidebar
+          sessions={sessions}
+          activeId={sessionId}
+          locked={started}
+          onNewChat={() => openNew("chat")}
+          onNewTest={() => openNew("ielts")}
+          onOpen={openSession}
+          onRename={rename}
+          onDelete={remove}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+
+        <main className="flex h-full min-h-0 min-w-0 flex-col">
+          <header className="flex min-h-14 items-center gap-3 border-b px-7">
+            <h1 className="truncate text-[15px] font-semibold">{title}</h1>
+            {started && (
+              <Badge variant="outline" className="gap-1.5 border-red-200 bg-red-50 text-red-700">
+                <span className="size-1.5 animate-[blink_1.4s_ease-in-out_infinite] rounded-full bg-red-600" /> Live
+              </Badge>
+            )}
+          </header>
+          <div className="flex min-h-0 flex-1 flex-col">{content}</div>
+        </main>
+
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          settings={settings}
+          onChange={updateSettings}
+          server={server}
+          onKeysSaved={refreshServer}
+        />
+      </div>
+    </TooltipProvider>
   );
 }

@@ -16,6 +16,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .config import OPENAI_MODEL, PROJECT_ROOT
 from .interrupts import ReplyTracker, rewrite_last_reply
+from .llmtext import _text_deltas, text_from_content  # noqa: F401 (re-exported)
 
 DB_PATH = PROJECT_ROOT / "checkpoints.db"
 
@@ -41,6 +42,12 @@ Voice rules (this reply will be converted to speech by a TTS engine):
 
 If a question needs facts you are unsure about, use the search tool first.
 
+Joined speech: the user's message may be several spoken pieces joined with "...", because they
+kept talking or paused mid-thought. Treat it as one train of thought and respond to the whole
+thing, not just the last words. Spoken text can also contain transcription mistakes or stray
+background phrases, so don't dwell on odd fragments. Only say goodbye if the whole message is a
+goodbye, not when "bye" merely appears at the end of a longer message.
+
 Interruptions: if one of your earlier replies ends with <interrupted by="..." />, the user
 cut you off, so they only heard the text BEFORE the tag (the tag alone means they heard
 nothing). Do not resume or repeat that old answer. Respond to what they say next, and treat
@@ -61,43 +68,6 @@ agent = create_agent(
     name="jessica_assistant",
     checkpointer=_checkpointer,
 )
-
-
-def _text_deltas(content):
-    """Yield text-only deltas from an AIMessageChunk content (str or block list).
-
-    gpt-5.6-luna via the Responses API emits reasoning blocks alongside text
-    blocks; only 'text' blocks should ever reach the TTS.
-    """
-    if isinstance(content, str):
-        if content:
-            yield content
-        return
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    yield text
-
-
-def text_from_content(content) -> str:
-    """Extract plain text from a complete AIMessage.content value.
-
-    Non-streaming invokes can return a string or a list of content blocks
-    (e.g. from the Responses API). This normalises both to a single string.
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
-            elif isinstance(block, str):
-                parts.append(block)
-        return "".join(parts)
-    return ""
 
 
 _tracker = ReplyTracker()
@@ -150,6 +120,17 @@ def agent_reply_stream(user_text: str, session_id: str):
             yield item
 
     return deltas()
+
+
+def apply_keys(openai_api_key: str = "", tavily_api_key: str = "") -> None:
+    """Use new API keys right away (the model and search tool are already built)."""
+    from .llm_keys import swap_openai_credentials, swap_tavily_key
+
+    if openai_api_key:
+        fresh = ChatOpenAI(model=OPENAI_MODEL, use_responses_api=True, api_key=openai_api_key)
+        swap_openai_credentials(model, fresh)
+    if tavily_api_key:
+        swap_tavily_key(search, tavily_api_key)
 
 
 def mark_interrupted(session_id: str, heard_text: str, by: str) -> None:

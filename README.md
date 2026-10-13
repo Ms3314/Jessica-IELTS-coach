@@ -53,6 +53,38 @@ requirements.txt           # pinned dependencies for this machine
 TODO.md                    # design log: every change and WHY it was made
 ```
 
+## IELTS mock test (backend)
+
+Click **New IELTS test** in the sidebar. Jessica runs the real
+structure — intro, Part 1, Part 2 (cue card, 1 min prep, up to 2 min
+talk), Part 3 — without commenting on your answers, with a countdown for each
+part. Every answer is saved as audio under `data/exams/<session>/<exam>/`; when
+the test ends (or you quit after 3+ answers) the recordings are re-transcribed
+with word timestamps and scored into an estimated report. Past tests and
+conversations are listed in the History sidebar.
+
+```
+app/ielts.py          # the exam's fixed structure + the saved record
+app/examiner.py       # fixed exam lines, prompts, cue card, question generation
+app/exam_engine.py    # ExamSession: the examiner's loop
+app/exam_analysis.py  # fluency / vocabulary / grammar / pitch / word-confidence numbers
+app/exam_report.py    # second-pass transcription + band estimates -> report.json
+```
+
+REST: `GET /exams/{session}` · `GET /exams/{session}/{exam}` (turns, analysis,
+report) · `GET /exams/{session}/{exam}/audio/{turnNN.wav}` ·
+`POST /exams/{session}/{exam}/analyse` (re-run). Deleting a session deletes its
+recordings. Bands are practice **estimates**; pronunciation is inferred from
+indicators (word confidence, pitch variation), not assessed by ear.
+
+## Settings and API keys
+
+Add your OpenAI key (and optionally a Tavily key for web search) in the app's
+**Settings**. Keys are saved in `data/settings.json` (readable only by you),
+used immediately, and never sent back to the browser. A `.env` file still
+works as a fallback. The server listens on `127.0.0.1` only; set `HOST=0.0.0.0`
+to reach it from another device.
+
 ## Setup
 
 ```bash

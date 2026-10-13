@@ -6,10 +6,18 @@ export interface Settings {
    * rooms can trigger it by accident. The Stop button always works.
    */
   voiceInterrupt: boolean;
+  /**
+   * Seconds of quiet before Jessica decides you have finished and answers.
+   * Shorter = faster replies; longer = more room to pause and think.
+   */
+  pauseS: number;
 }
+
+export const PAUSE_RANGE = { min: 0.8, max: 3.0, step: 0.1 } as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   voiceInterrupt: false,
+  pauseS: 1.2,
 };
 
 const KEY = "speakielts.settings";
@@ -17,7 +25,15 @@ const KEY = "speakielts.settings";
 function load(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (raw) {
+      const saved = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      // guard against a hand-edited or stale value
+      const p = Number(saved.pauseS);
+      saved.pauseS = Number.isFinite(p)
+        ? Math.min(PAUSE_RANGE.max, Math.max(PAUSE_RANGE.min, p))
+        : DEFAULT_SETTINGS.pauseS;
+      return saved;
+    }
   } catch {
     /* storage blocked or corrupt: fall back to defaults */
   }

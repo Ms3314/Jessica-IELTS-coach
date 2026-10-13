@@ -10,6 +10,22 @@ from app.interrupts import strip_tags
 
 pipeline = KPipeline(repo_id="hexgrad/Kokoro-82M", lang_code="a")
 
+
+def _warm_load(voice: str = "af_heart") -> None:
+    """Synthesize one short sentence at import so the first real one isn't slow.
+
+    The very first synthesis is about three times slower than later ones; paying
+    that here moves it from "the user just pressed start" to app startup.
+    """
+    try:
+        for _ in pipeline("Hello.", voice=voice):
+            pass
+    except Exception as e:
+        print(f"(voice will warm up on first use: {e})")
+
+
+_warm_load()
+
 SAMPLE_RATE = 24000
 
 # --- pluggable output sink --------------------------------------------------
