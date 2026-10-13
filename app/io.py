@@ -44,8 +44,13 @@ class EventHandler(ABC):
     def on_user(self, text: str):
         """Final transcript of what the user said."""
 
-    def on_agent(self, sentence: str):
-        """One streamed sentence of the agent's reply (for the transcript UI)."""
+    def on_agent(self, sentence: str, idx: int | None = None):
+        """One streamed sentence of the agent's reply (for the transcript UI).
+
+        `idx` numbers sentences within the session; the web client reports the
+        last one it actually started playing, so an interruption knows what was
+        heard.
+        """
 
     def on_pause(self):
         """The user paused mid-thought; the UI may show a subtle cue.
@@ -82,7 +87,7 @@ class TerminalHandler(EventHandler):
     def on_user(self, text):
         print("You said:", text)
 
-    def on_agent(self, sentence):
+    def on_agent(self, sentence, idx=None):
         # The TTS worker already prints "[tts] <sentence>" in verbose mode.
         pass
 
@@ -162,8 +167,11 @@ class WebSocketHandler(EventHandler):
     def on_user(self, text):
         self._send({"type": "user", "text": text})
 
-    def on_agent(self, sentence):
-        self._send({"type": "agent", "text": sentence})
+    def on_agent(self, sentence, idx=None):
+        event = {"type": "agent", "text": sentence}
+        if idx is not None:
+            event["idx"] = idx
+        self._send(event)
 
     def on_pause(self):
         # A dedicated event (not a "state") so the client can show a cue

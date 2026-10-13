@@ -18,6 +18,14 @@ def test_basic_split():
     assert out == ["Hello there.", "How are you?"], out
 
 
+def test_interrupted_tag_is_never_spoken():
+    # a model echoing the marker (even split across deltas) must not reach TTS
+    deltas = ["Sure thing. <interr", 'upted by="voice" />', " Next one."]
+    out = list(_sentence_iter(iter(deltas)))
+    assert out == ["Sure thing.", "Next one."], out
+    assert list(_sentence_iter(iter(['<interrupted by="button" />']))) == []
+
+
 def test_abbreviations_do_not_split():
     out = list(_sentence_iter(iter(["Mr. Smith arrived. He was on time."])))
     assert out == ["Mr. Smith arrived.", "He was on time."], out

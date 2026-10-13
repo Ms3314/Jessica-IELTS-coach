@@ -106,6 +106,39 @@ def test_output_is_flat_1d():
     assert out is not None and out.ndim == 1, "must return flat 1D audio"
 
 
+def test_clean_transcript_drops_non_speech_segments():
+    from app.asr import clean_transcript
+
+    result = {
+        "text": "hello there Thank you.",
+        "segments": [
+            {"text": " hello there", "no_speech_prob": 0.02},
+            {"text": " Thank you.", "no_speech_prob": 0.9},
+        ],
+    }
+    assert clean_transcript(result, 6.0) == "hello there"
+
+
+def test_clean_transcript_drops_a_doubtful_stock_phrase_on_a_short_clip():
+    from app.asr import clean_transcript
+
+    noise = {"text": "Thank you.", "segments": [{"text": " Thank you.", "no_speech_prob": 0.3}]}
+    assert clean_transcript(noise, 1.2) == ""
+
+
+def test_clean_transcript_keeps_a_clear_thank_you():
+    from app.asr import clean_transcript
+
+    clear = {"text": "Thank you.", "segments": [{"text": " Thank you.", "no_speech_prob": 0.02}]}
+    assert clean_transcript(clear, 1.2) == "Thank you."
+
+
+def test_clean_transcript_without_segments_trusts_the_text():
+    from app.asr import clean_transcript
+
+    assert clean_transcript({"text": " hi there "}, 2.0) == "hi there"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

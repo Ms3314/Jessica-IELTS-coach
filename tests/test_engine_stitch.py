@@ -46,7 +46,7 @@ class FakeEvents:
     def on_user(self, text):
         self.user_texts.append(text)
 
-    def on_agent(self, _sentence):
+    def on_agent(self, _sentence, _idx=None):
         pass
 
     def on_pause(self):
@@ -121,6 +121,73 @@ def test_stitch_window_expiry_starts_a_new_turn():
     finally:
         engine.STITCH_WINDOW_S = saved
     assert events.user_texts == ["first", "second"], events.user_texts
+
+
+def _interrupted_run(by, heard_idx, sentences, texts):
+    """One turn where the reply is cut off; returns (user_texts, recorded calls)."""
+    recorded = []
+    engine.agent.mark_interrupted = lambda sid, heard, b: recorded.append((sid, heard, b))
+    engine.asr.transcribe = lambda _clip: texts.pop(0)
+    engine.agent.agent_reply_stream = lambda text, _sid: iter(sentences)
+    holder = {}
+
+    def fake_speak_stream(_stream, on_sentence=None, **_kwargs):
+        if holder.get("cut"):
+            return False  # only the first reply is cut off
+        holder["cut"] = True
+        for sentence in sentences:  # the engine numbers + reports each sentence
+            on_sentence(sentence)
+        holder["session"].interrupt(by, heard_idx)  # user stops her mid-reply
+        return True
+
+    engine.tts.speak_stream = fake_speak_stream
+    events = FakeEvents()
+    session = engine.Session(FakeSource(["c1", "c2"]), sink=object(), events=events)
+    holder["session"] = session
+    session.loop()
+    return events.user_texts, recorded
+
+
+def test_button_stop_does_not_stitch_and_records_the_heard_part():
+    users, recorded = _interrupted_run(
+        "button", 0, ["Canberra is it.", "It was a compromise."], ["capital?", "no, biggest city"]
+    )
+    assert users == ["capital?", "no, biggest city"], users  # NOT stitched
+    assert recorded == [("default", "Canberra is it.", "button")], recorded
+
+
+def test_voice_stop_still_stitches_and_records_the_heard_part():
+    users, recorded = _interrupted_run(
+        "voice", 1, ["One.", "Two.", "Three."], ["I like football", "and I play weekly"]
+    )
+    assert users == ["I like football", "I like football ... and I play weekly"], users
+    assert recorded[0][1:] == ("One. Two.", "voice"), recorded
+
+
+def test_nothing_heard_records_an_empty_heard_part():
+    _, recorded = _interrupted_run("voice", -1, ["Never played."], ["hello", "x"])
+    assert recorded[0][1:] == ("", "voice"), recorded
+
+
+def test_unknown_heard_idx_assumes_everything_sent_was_heard():
+    _, recorded = _interrupted_run("button", None, ["A.", "B."], ["hello", "x"])
+    assert recorded[0][1:] == ("A. B.", "button"), recorded
+
+
+def test_interrupt_before_the_llm_runs_does_not_touch_memory():
+    recorded = []
+    engine.agent.mark_interrupted = lambda *a: recorded.append(a)
+    engine.tts.speak_stream = lambda *a, **k: (_ for _ in ()).throw(AssertionError("no LLM"))
+    engine.agent.agent_reply_stream = lambda text, _sid: iter([text])
+    session = engine.Session(FakeSource(["clip1"]), sink=object(), events=FakeEvents())
+
+    def transcribe(_clip):
+        session.interrupt("button")
+        return "stop"
+
+    engine.asr.transcribe = transcribe
+    session.loop()
+    assert recorded == [], "no reply existed, so there is nothing to rewrite"
 
 
 def test_session_id_is_passed_to_the_agent():

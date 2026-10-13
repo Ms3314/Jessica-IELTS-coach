@@ -12,8 +12,9 @@ behaviour stays consistent across both frontends.
 import logging
 import numpy as np
 
+from app import config
 from app.io import BACKFILL
-from app.vad import speech_probability, CHUNK_SIZE
+from app.vad import speech_probability, reset_states, CHUNK_SIZE
 
 logger = logging.getLogger("speakIelts.recorder")
 
@@ -23,8 +24,30 @@ FRAME_MS = 100            # process audio in 100 ms frames
 BACKFILL_SILENCE_S = 1.5  # first pause: notify the UI, keep listening
 FINAL_SILENCE_S = 2.5     # second pause: finalize the clip (stitching recovers)
 MIN_SPEECH_S = 0.3        # require this much real speech (a cough isn't speech)
-MAX_RECORD_S = 15.0       # safety cap so a noisy room can't record forever
+MAX_RECORD_S = config.MAX_RECORD_S  # safety cap so a noisy room can't record forever
 PRE_ROLL_S = 0.3          # keep this much audio before speech started
+
+# Hysteresis: it takes a confident, sustained burst to START counting as speech,
+# but only a clear drop to STOP. Probabilities in between keep the current state,
+# so values wobbling around one threshold no longer flip speech/silence.
+START_PROB = 0.5          # chunk prob needed to (begin to) count as speech
+END_PROB = 0.35           # chunk prob below which speech is considered over
+START_CHUNKS = 3          # consecutive 32 ms chunks above START_PROB to begin
+
+# Loudness gate: the VAD alone also fires on TV/music/chatter, so a frame only
+# counts as the user's speech if it is ALSO clearly louder than the room.
+NOISE_GATE_RATIO = config.NOISE_GATE_RATIO  # speech must exceed floor * this
+ABS_MIN_LEVEL = 0.006     # never count anything quieter than this (RMS, 0..1)
+CAL_FRAMES = 5            # frames (0.5 s) used to measure the room at first
+MAX_CAL_FLOOR = 0.02      # a talkative calibration can't push the floor above this
+FLOOR_FALL = 0.5          # floor follows a quieter room down quickly...
+FLOOR_RISE = 0.05         # ...and creeps up slowly (so speech can't drag it up)
+
+# "Stuck in noise": speech is dynamic (syllables rise and fall); a fan, hum or
+# steady music is flat. If a long run of "speech" frames barely varies in
+# loudness, treat it as noise, learn its level as the new floor, and move on.
+FLAT_WINDOW = 30          # frames (3 s) of continuous speech to examine
+FLAT_CV = 0.15            # loudness std/mean below this = flat = noise
 
 FRAME_LEN = int(SAMPLE_RATE * FRAME_MS / 1000)                  # 1600 samples
 BACKFILL_SILENCE = int(BACKFILL_SILENCE_S * 1000 / FRAME_MS)    # 15 frames
@@ -45,16 +68,27 @@ class StreamingRecorder:
     """
 
     def __init__(self):
+        # The noise floor describes the ROOM, not one utterance, so it survives
+        # reset(). None until CAL_FRAMES frames have been heard.
+        self.noise_floor = None
+        self._cal_levels = []
         self.reset()
 
     def reset(self):
         self._pending = np.zeros(0, dtype=np.int16)
         self.frames = []        # list of int16 frames (each FRAME_LEN long)
-        self.vad_flags = []     # VAD speech decision per frame
+        self.vad_flags = []     # speech decision per frame (VAD AND loud enough)
+        self.levels = []        # loudness (RMS, 0..1) per frame
         self.speech_frames = 0  # running count of speech frames (no re-summing)
         self.silent = 0         # consecutive silent frames after speech began
         self.backfill_fired = False  # already acknowledged this pause
         self.done = False       # a clip has been emitted; stop accepting
+        # VAD runs on EVERY contiguous 512-sample chunk (Silero is stateful),
+        # so frame audio is queued here and consumed chunk by chunk.
+        self._vad_pending = np.zeros(0, dtype=np.int16)
+        self._in_speech = False   # hysteresis state
+        self._start_run = 0       # consecutive chunks above START_PROB
+        reset_states()            # new utterance: forget the previous audio
 
     def push(self, pcm: np.ndarray):
         pcm = np.asarray(pcm, dtype=np.int16).reshape(-1)
@@ -70,13 +104,57 @@ class StreamingRecorder:
                 return result
         return None
 
+    def _gate(self) -> float:
+        """Minimum loudness for a frame to count as speech right now."""
+        floor = self.noise_floor
+        if floor is None:
+            return ABS_MIN_LEVEL
+        return max(ABS_MIN_LEVEL, floor * NOISE_GATE_RATIO)
+
+    def _track_floor(self, level):
+        """Measure the room at the start, then follow it while nobody speaks."""
+        if self.noise_floor is None:
+            self._cal_levels.append(level)
+            if len(self._cal_levels) >= CAL_FRAMES:
+                self.noise_floor = min(min(self._cal_levels), MAX_CAL_FLOOR)
+                logger.info("recorder: noise floor calibrated to %.4f", self.noise_floor)
+            return
+        # only called on frames that were NOT speech
+        rate = FLOOR_FALL if level < self.noise_floor else FLOOR_RISE
+        self.noise_floor += (level - self.noise_floor) * rate
+
+    def _is_flat_noise(self) -> bool:
+        """True if the last FLAT_WINDOW frames were all 'speech' but steady."""
+        n = FLAT_WINDOW
+        if len(self.vad_flags) < n or not all(self.vad_flags[-n:]):
+            return False
+        window = np.asarray(self.levels[-n:])
+        mean = float(window.mean())
+        return mean > 0 and float(window.std()) / mean < FLAT_CV
+
     def _feed_frame(self, frame):
         self.frames.append(frame)
+        level = float(np.sqrt(np.mean((frame.astype(np.float32) / 32768.0) ** 2)))
+        self.levels.append(level)
 
-        # VAD on the first 512-sample chunk (same as the terminal recorder)
-        prob = speech_probability(frame[:CHUNK_SIZE].astype(np.float32) / 32768.0)
-        speaking = prob > 0.5
+        # VAD says "speech-like"; the gate says "and clearly louder than the room"
+        speaking = self._vad_frame(frame) and level >= self._gate()
         self.vad_flags.append(speaking)
+
+        if speaking and self._is_flat_noise():
+            # A steady, non-varying "speech" run is noise the VAD mistook for a
+            # voice. Learn its level as the new floor and take those frames back.
+            n = FLAT_WINDOW
+            mean = float(np.mean(self.levels[-n:]))
+            self.noise_floor = max(self.noise_floor or 0.0, mean)
+            self.vad_flags[-n:] = [False] * n
+            self.speech_frames = max(0, self.speech_frames - (n - 1))
+            self.silent = n - 1  # these frames are silence, not speech
+            speaking = False
+            logger.info("recorder: steady noise at %.4f ignored (floor raised)", mean)
+
+        if not speaking:
+            self._track_floor(level)
 
         if speaking:
             self.speech_frames += 1
@@ -108,6 +186,27 @@ class StreamingRecorder:
         if len(self.frames) >= MAX_FRAMES:
             return self._finalize()
         return None
+
+    def _vad_frame(self, frame) -> bool:
+        """Run the VAD over all of this frame's audio; True if it's speech.
+
+        The frame is not a multiple of 512 samples, so leftovers carry over to
+        the next frame and the model always sees an unbroken audio stream.
+        """
+        self._vad_pending = np.concatenate([self._vad_pending, frame])
+        while len(self._vad_pending) >= CHUNK_SIZE:
+            chunk = self._vad_pending[:CHUNK_SIZE]
+            self._vad_pending = self._vad_pending[CHUNK_SIZE:]
+            prob = speech_probability(chunk.astype(np.float32) / 32768.0)
+            if self._in_speech:
+                if prob < END_PROB:
+                    self._in_speech = False
+                    self._start_run = 0
+            else:
+                self._start_run = self._start_run + 1 if prob >= START_PROB else 0
+                if self._start_run >= START_CHUNKS:
+                    self._in_speech = True
+        return self._in_speech
 
     def _finalize(self):
         self.done = True

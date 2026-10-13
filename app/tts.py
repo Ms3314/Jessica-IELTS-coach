@@ -6,6 +6,8 @@ import numpy as np
 import sounddevice as sd
 from kokoro import KPipeline
 
+from app.interrupts import strip_tags
+
 pipeline = KPipeline(repo_id="hexgrad/Kokoro-82M", lang_code="a")
 
 SAMPLE_RATE = 24000
@@ -114,8 +116,10 @@ def _sentence_iter(deltas):
             if cut is None:
                 break
             sentence, buf = buf[: cut + 1], buf[cut + 1 :]
+            sentence = strip_tags(sentence)  # never speak an echoed <interrupted />
             if _speakable(sentence):
                 yield sentence.strip()
+    buf = strip_tags(buf)
     if _speakable(buf):  # flush whatever is left at end of stream
         yield buf.strip()
 

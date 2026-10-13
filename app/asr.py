@@ -153,6 +153,51 @@ def record_until_silence(open_stream):
     return np.concatenate(frames[start:]).reshape(-1)
 
 
+# Whisper invents stock phrases for noise-only audio. These are dropped when the
+# clip is short AND Whisper itself had some doubt it was speech — a real, clear
+# "thank you" is kept.
+HALLUCINATIONS = {
+    "thank you",
+    "thank you.",
+    "thanks for watching",
+    "thanks for watching!",
+    "thank you for watching",
+    "thank you for watching.",
+    "you",
+    "bye",
+    "bye.",
+}
+NO_SPEECH_DROP = 0.6      # segment is dropped outright above this no-speech prob
+DOUBT_NO_SPEECH = 0.15    # ...or above this for a stock hallucination phrase
+SHORT_CLIP_S = 3.0        # "short" for the hallucination-phrase rule
+
+
+def clean_transcript(result: dict, clip_seconds: float) -> str:
+    """Join the segments of a Whisper result, dropping ones that aren't speech.
+
+    Whisper reports, per segment, how likely it is that there was no speech
+    (`no_speech_prob`). Its built-in skip only fires when the log-probability is
+    ALSO low, which confident hallucinations avoid, so filter on it here too.
+    """
+    segments = result.get("segments")
+    if not segments:  # nothing to judge by: trust the plain text
+        return (result.get("text") or "").strip()
+    kept = []
+    for seg in segments:
+        text = (seg.get("text") or "").strip()
+        no_speech = float(seg.get("no_speech_prob") or 0.0)
+        if not text or no_speech > NO_SPEECH_DROP:
+            continue
+        if (
+            clip_seconds <= SHORT_CLIP_S
+            and text.lower() in HALLUCINATIONS
+            and no_speech > DOUBT_NO_SPEECH
+        ):
+            continue
+        kept.append(text)
+    return " ".join(kept).strip()
+
+
 def transcribe(audio: np.ndarray):
     """Run Whisper on a 16 kHz mono int16 clip and return the text (or None).
 
@@ -171,7 +216,7 @@ def transcribe(audio: np.ndarray):
         temperature=0,
     )
 
-    text = result["text"].strip()
+    text = clean_transcript(result, len(audio) / SAMPLE_RATE)
     return text or None
 
 

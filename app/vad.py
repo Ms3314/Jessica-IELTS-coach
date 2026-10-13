@@ -1,8 +1,8 @@
 """Silero VAD — voice activity detection for the voice pipeline.
 
 The model expects exactly 512-sample chunks at 16 kHz (32 ms each) and
-returns a speech probability in [0, 1]. Callers pick their own threshold
-(0.5 everywhere in this app).
+returns a speech probability in [0, 1]. Callers pick their own threshold.
+The model is stateful, so chunks must be fed contiguously and in order.
 """
 import numpy as np
 import torch
@@ -25,6 +25,15 @@ print("Loading Silero VAD model...")
 _model = _load_model()
 _model(torch.zeros(CHUNK_SIZE, dtype=torch.float32), SAMPLE_RATE)  # warm up
 print("Silero VAD ready.")
+
+
+def reset_states() -> None:
+    """Forget the model's memory of earlier audio (call between utterances).
+
+    Silero is stateful: it uses the audio it just heard to judge the next
+    chunk, so a new utterance must not inherit the previous one's context.
+    """
+    _model.reset_states()
 
 
 def speech_probability(audio_chunk) -> float:
