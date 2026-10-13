@@ -282,7 +282,7 @@ def transcribe_precise(wav_path: Path, model: Optional[str] = None) -> dict:
     import mlx_whisper
     import soundfile as sf
 
-    from app import asr
+    from app.speech import asr
 
     audio, rate = sf.read(str(wav_path), dtype="float32")
     if rate != 16000:

@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from .config import OPENAI_MODEL, PROJECT_ROOT
+from app.config import OPENAI_MODEL, PROJECT_ROOT
 from .interrupts import ReplyTracker, rewrite_last_reply
 from .llmtext import _text_deltas, text_from_content  # noqa: F401 (re-exported)
 

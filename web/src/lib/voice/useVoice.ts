@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { AudioEngine } from "./audio";
-import { INITIAL_EXAM, examReducer, type ExamEvent } from "./exam";
-import type { ExamLength } from "./settings";
-import { addAgentSentence, addUserText, markInterrupted, type Line } from "./transcript";
+import { AudioEngine } from "./audio-engine";
+import { INITIAL_EXAM, examReducer, type ExamEvent } from "@/lib/exam";
+import type { ExamLength } from "@/lib/settings";
+import { addAgentSentence, addUserText, markInterrupted, type Line } from "@/lib/transcript";
 
 export type EngineState =
   | "idle"

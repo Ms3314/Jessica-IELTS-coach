@@ -1,6 +1,6 @@
 """The IELTS examiner's voice: how each line is asked for, and written.
 
-app/ielts.py fixes the STRUCTURE and TIMINGS of the test; everything the
+app/exam/ielts.py fixes the STRUCTURE and TIMINGS of the test; everything the
 examiner says is written by the language model each time, so no two tests sound
 alike. For every line the model is given an intent ("greet the candidate and ask
 their name") plus the facts the line must convey ("one minute to prepare"). If
@@ -18,7 +18,7 @@ from typing import Iterator, Optional
 
 from pydantic import BaseModel, Field
 
-from app.llmtext import _text_deltas, text_from_content
+from app.llm.llmtext import _text_deltas, text_from_content
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-from app.vad import speech_probability, CHUNK_SIZE, SAMPLE_RATE
+from app.speech.vad import speech_probability, CHUNK_SIZE, SAMPLE_RATE
 
 
 def test_silence_is_not_speech():

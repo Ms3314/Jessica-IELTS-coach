@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-from app import exam_report as er
-from app import ielts
+from app.exam import report as er
+from app.exam import ielts
 
 
 def test_round_band_follows_the_ielts_rule():

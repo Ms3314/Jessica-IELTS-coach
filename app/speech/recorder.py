@@ -6,7 +6,7 @@ in small chunks over a WebSocket; this class ingests those chunks, runs the
 same Silero VAD + silence-endpointing logic, and emits a finished clip the
 moment the user stops talking — so the server can transcribe it with Whisper.
 
-It reuses `app.vad.speech_probability`, exactly like the terminal recorder, so
+It reuses `app.speech.vad.speech_probability`, exactly like the terminal recorder, so
 behaviour stays consistent across both frontends.
 """
 import logging
@@ -14,7 +14,7 @@ import numpy as np
 
 from app import config
 from app.io import BACKFILL
-from app.vad import speech_probability, reset_states, CHUNK_SIZE
+from app.speech.vad import speech_probability, reset_states, CHUNK_SIZE
 
 logger = logging.getLogger("speakIelts.recorder")
 

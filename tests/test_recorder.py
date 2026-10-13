@@ -18,7 +18,7 @@ import queue
 
 import numpy as np
 
-import app.recorder as rec
+import app.speech.recorder as rec
 from app.io import BACKFILL
 
 

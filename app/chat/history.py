@@ -1,8 +1,8 @@
 """Turn a saved conversation into plain messages the UI can show."""
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app.interrupts import strip_tags
-from app.llmtext import text_from_content
+from app.llm.interrupts import strip_tags
+from app.llm.llmtext import text_from_content
 
 
 def to_chat_messages(messages) -> list[dict]:

@@ -1,15 +1,15 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
-import CallBar from "@/components/CallBar";
+import CallBar from "@/components/call/CallBar";
 import ExamPanel from "@/components/exam/ExamPanel";
 import Loader from "@/components/brand/Loader";
-import Transcript from "@/components/Transcript";
+import Transcript from "@/components/call/Transcript";
 import type { Mode } from "@/lib/api";
 import type { ExamState } from "@/lib/exam";
 import type { FrameEmitter } from "@/lib/audio/frame-source";
 import type { VisualFrame } from "@/lib/audio/types";
 import type { Line } from "@/lib/transcript";
-import type { EngineState } from "@/lib/useVoice";
+import type { EngineState } from "@/lib/voice/useVoice";
 
 interface Props {
   mode: Mode;

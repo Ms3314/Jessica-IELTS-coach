@@ -81,7 +81,7 @@ class MicSource(AudioSource):
     """Records from the host microphone via sounddevice (terminal CLI)."""
 
     def listen(self):
-        from app import asr  # imported lazily so the web server can skip the mic
+        from app.speech import asr  # imported lazily so the web server can skip the mic
 
         print("Speak something...")
         audio = asr.record_until_silence(lambda: asr._input)
@@ -116,7 +116,7 @@ class WebSocketSource(AudioSource):
     """
 
     def __init__(self, in_q: "queue.Queue"):
-        from app.recorder import StreamingRecorder
+        from app.speech.recorder import StreamingRecorder
 
         self._in_q = in_q
         self.recorder = StreamingRecorder()

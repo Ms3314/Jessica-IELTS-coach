@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import examiner
+from app.exam import examiner
 
 
 class Chunk:
@@ -138,7 +138,7 @@ def test_line_instruction_includes_context_and_the_must_haves():
 
 
 def test_part2_lines_use_the_times_of_the_chosen_length():
-    from app import ielts
+    from app.exam import ielts
 
     short = ielts.timing_for("short").phrases()
     for key in ("part2_announce", "part2_prep", "part2_start"):
@@ -152,7 +152,7 @@ def test_part2_lines_use_the_times_of_the_chosen_length():
 
 
 def test_a_line_quoting_the_wrong_length_is_rejected_and_replaced():
-    from app import ielts
+    from app.exam import ielts
 
     short = ielts.timing_for("short").phrases()
     llm = FakeLLM(chunks=["You have one minute to prepare."])      # right for full, wrong for short

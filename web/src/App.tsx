@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import CallView from "@/components/views/CallView";
-import HistorySidebar from "@/components/HistorySidebar";
+import HistorySidebar from "@/components/layout/HistorySidebar";
 import ReportView from "@/components/exam/ReportView";
-import SettingsDialog from "@/components/SettingsDialog";
+import SettingsDialog from "@/components/layout/SettingsDialog";
 import ProfileView from "@/components/views/ProfileView";
 import StartView from "@/components/views/StartView";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,7 @@ import {
 } from "@/lib/api";
 import { sessionMode } from "@/lib/history";
 import { useSettings } from "@/lib/settings";
-import { useVoice } from "@/lib/useVoice";
+import { useVoice } from "@/lib/voice/useVoice";
 
 interface SavedHistory {
   loading: boolean;

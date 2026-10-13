@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from app.agent import agent, model, text_from_content
+from app.llm.agent import agent, model, text_from_content
 from app.config import PROJECT_ROOT
 
 DB_PATH = PROJECT_ROOT / "checkpoints.db"
@@ -259,8 +259,8 @@ def _delete_exam_recordings(session_id: str) -> None:
     """Mock-test audio is personal data: it goes away with its session."""
     import shutil
 
-    from app import profile
-    from app.ielts import EXAMS_DIR
+    from app.exam import profile
+    from app.exam.ielts import EXAMS_DIR
 
     try:
         profile.delete_session(session_id)
@@ -273,7 +273,7 @@ def _delete_exam_recordings(session_id: str) -> None:
 
 def messages(session_id: str) -> list[dict]:
     """The saved conversation as plain messages (empty for a new session)."""
-    from app.history import to_chat_messages
+    from app.chat.history import to_chat_messages
 
     state = agent.get_state({"configurable": {"thread_id": session_id}})
     return to_chat_messages(state.values.get("messages", [])) if state else []

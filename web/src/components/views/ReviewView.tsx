@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import ReportView from "@/components/exam/ReportView";
-import Transcript from "@/components/Transcript";
+import Transcript from "@/components/call/Transcript";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

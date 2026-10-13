@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-from app import ielts
+from app.exam import ielts
 
 
 def test_steps_follow_the_real_exam_order():

@@ -24,33 +24,30 @@ Latency tricks:
 
 ## Project structure
 
+**[ARCHITECTURE.md](ARCHITECTURE.md) is the code map**: diagrams of how the
+pieces connect, what every file does, and a "where do I change X" table.
+
 ```
-main.py                    # terminal entry point — the conversation loop
-server.py                  # FastAPI + WebSocket server; serves the web UI
+main.py                  # terminal entry point
+server.py                # web entry point (builds the FastAPI app)
 app/
-  ├── config.py            # loads .env, exposes shared settings
-  ├── engine.py            # Session: shared conversation flow (both frontends)
-  ├── io.py                # pluggable AudioSource / Sink / EventHandler
-  ├── recorder.py          # streaming VAD + endpointing for web mic audio
-  ├── vad.py               # Silero VAD — neural voice activity detection
-  ├── asr.py               # mic capture + local Whisper transcription
-  ├── agent.py             # LangChain agent + SQLite session memory (streams deltas)
-  ├── tts.py               # Kokoro sentence-streaming playback (sink-aware)
-  ├── sessions.py          # session metadata, colours, summaries
-  └── greeting.py          # opening question (new session = random, returning = summary-based)
-web/                       # React + Vite UI (blob visual, caption, mic capture)
-  ├── src/lib/audio.ts     # mic capture, resample, TTS playback, levels
-  └── src/lib/useVoice.ts  # WebSocket client + React state
-tests/
-  ├── test_asr.py          # recording logic (fake mic stream, no device needed)
-  ├── test_vad.py          # VAD model (silence/noise rejection, dtype handling)
-  ├── test_recorder.py     # streaming two-tier endpointing + backfill
-  ├── test_tts.py          # sentence splitter edge cases
-  ├── test_io.py           # event serialization plumbing
-  └── test_engine_stitch.py# barge-in continuation stitching
-.env                       # API keys (not committed)
-requirements.txt           # pinned dependencies for this machine
-TODO.md                    # design log: every change and WHY it was made
+  ├── config.py          # loads .env + saved settings
+  ├── settings_store.py  # API keys entered in Settings
+  ├── io.py              # pluggable AudioSource / Sink / EventHandler
+  ├── api/               # REST routes (routes.py) and the /ws call socket (voice.py)
+  ├── chat/              # free conversation: Session loop, greeting, sessions, history
+  ├── exam/              # IELTS mock test: structure, examiner, loop, analysis, report, profile
+  ├── speech/            # VAD, streaming recorder, Whisper (asr), Kokoro (tts)
+  └── llm/               # the agent + its memory, interruption handling, key swapping
+web/                     # React + Vite UI
+  └── src/
+      ├── components/    # views/ layout/ call/ exam/ ui/
+      └── lib/           # voice/ (WebSocket + audio engine), audio/ (visualizer), pure helpers
+tests/                   # one script per backend module (no mic, no API keys)
+web/tests/               # node:test for the pure frontend helpers
+.env                     # API keys (not committed)
+requirements.txt         # pinned dependencies for this machine
+TODO.md                  # design log: every change and WHY it was made
 ```
 
 ## IELTS mock test (backend)
@@ -69,11 +66,11 @@ which charts your bands over time. Past tests and conversations are listed in th
 History sidebar.
 
 ```
-app/ielts.py          # the exam's fixed structure + the saved record
-app/examiner.py       # fixed exam lines, prompts, cue card, question generation
-app/exam_engine.py    # ExamSession: the examiner's loop
-app/exam_analysis.py  # fluency / vocabulary / grammar / pitch / word-confidence numbers
-app/exam_report.py    # second-pass transcription + band estimates -> report.json
+app/exam/ielts.py     # the exam's fixed structure + the saved record
+app/exam/examiner.py  # fixed exam lines, prompts, cue card, question generation
+app/exam/engine.py    # ExamSession: the examiner's loop
+app/exam/analysis.py  # fluency / vocabulary / grammar / pitch / word-confidence numbers
+app/exam/report.py    # second-pass transcription + band estimates -> report.json
 ```
 
 REST: `GET /exams/{session}` · `GET /exams/{session}/{exam}` (turns, analysis,
@@ -191,12 +188,11 @@ which proxies `/ws` to the Python server on :8080).
 ## Testing
 
 ```bash
-python tests/test_asr.py            # recording state machine with a fake mic
-python tests/test_vad.py            # VAD: silence/noise rejection, dtype handling
-python tests/test_recorder.py       # streaming endpointing (1.5s cue, 2.5s finalize)
-python tests/test_tts.py            # sentence splitter edge cases
-python tests/test_io.py             # event serialization
-python tests/test_engine_stitch.py  # barge-in continuation stitching
+for t in tests/test_*.py; do python "$t" || break; done   # backend, one script per module
+```
+
+```bash
+node --test web/tests/                                     # frontend helpers (Node 22+)
 ```
 
 Headless tests use a fake audio stream — no microphone, no speakers, no API keys.

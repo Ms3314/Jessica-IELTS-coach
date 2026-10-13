@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-from app import exam_analysis as ea
-from app.exam_analysis import Word
+from app.exam import analysis as ea
+from app.exam.analysis import Word
 
 
 def _words(spec):

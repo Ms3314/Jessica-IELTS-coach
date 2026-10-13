@@ -2,7 +2,7 @@ import sys
 import numpy as np
 import sounddevice as sd
 import mlx_whisper
-from app.vad import speech_probability, CHUNK_SIZE
+from app.speech.vad import speech_probability, CHUNK_SIZE
 
 
 MODEL = "mlx-community/whisper-large-v3-turbo"

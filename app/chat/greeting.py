@@ -1,8 +1,8 @@
 """Opening questions Jessica asks at the start of a call."""
 import random
 
-from app import sessions as sessions_db
-from app.agent import agent, model, text_from_content
+from app.chat import sessions as sessions_db
+from app.llm.agent import agent, model, text_from_content
 
 _STARTERS = [
     "Hi, I'm Jessica. What would you like to talk about today?",

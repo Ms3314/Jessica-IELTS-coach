@@ -1,8 +1,8 @@
 """Runs one IELTS mock test: the examiner side of the conversation loop.
 
-Same building blocks as app/engine.py (an AudioSource to listen, a Sink to
+Same building blocks as app/chat/engine.py (an AudioSource to listen, a Sink to
 speak, an EventHandler for the UI) but a different loop: instead of a free chat
-it walks through the fixed steps from app/ielts.py. Parts 1 and 3 run against
+it walks through the fixed steps from app/exam/ielts.py. Parts 1 and 3 run against
 the clock; the model chooses what to ask. The examiner never reacts to what the
 candidate says (no feedback, no barge-in); every answer is just recorded for
 analysis once the test is over.
@@ -11,7 +11,8 @@ import logging
 import time
 from typing import Callable, Optional
 
-from app import asr, examiner, ielts, tts
+from app.speech import asr, tts
+from app.exam import examiner, ielts
 from app.io import BACKFILL, QUIT
 
 logger = logging.getLogger("speakIelts.exam")

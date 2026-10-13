@@ -1,7 +1,7 @@
 """The post-test report: analyse the saved answers, then estimate IELTS bands.
 
     saved audio --careful re-transcription--> words + timestamps
-        --> fluency / vocabulary / grammar / pitch numbers   (app/exam_analysis.py)
+        --> fluency / vocabulary / grammar / pitch numbers   (app/exam/analysis.py)
         --> ONE structured model call: numbers + transcript + band descriptors
         --> checked, completed in code, saved as report.json
 
@@ -23,8 +23,8 @@ from typing import Callable, Optional
 
 from pydantic import BaseModel, Field
 
-from app import exam_analysis as ea
-from app.ielts import EXAMS_DIR, ExamLog
+from app.exam import analysis as ea
+from app.exam.ielts import EXAMS_DIR, ExamLog
 
 logger = logging.getLogger("speakIelts.report")
 

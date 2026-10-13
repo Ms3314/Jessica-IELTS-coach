@@ -1,12 +1,12 @@
 # voice pipeline: mic -> STT (Whisper local) -> agent (OpenAI) -> TTS (Kokoro)
 #
-# Terminal frontend. The conversation flow lives in app/engine.Session; this
+# Terminal frontend. The conversation flow lives in app/chat/engine.Session; this
 # file just wires the host-mic source, the local-speaker sink, and the
 # terminal printer, then runs the loop. The web frontend (server.py) drives
 # the very same engine over a WebSocket.
 from app.io import MicSource, TerminalHandler
-from app.tts import LocalSink
-from app.engine import Session
+from app.speech.tts import LocalSink
+from app.chat.engine import Session
 
 
 def main():

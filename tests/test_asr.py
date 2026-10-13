@@ -14,20 +14,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-# Stub the model-heavy modules BEFORE app.asr imports them.
-_vad = types.ModuleType("app.vad")
+# Stub the model-heavy modules BEFORE app.speech.asr imports them.
+_vad = types.ModuleType("app.speech.vad")
 _vad.SAMPLE_RATE = 16000
 _vad.CHUNK_SIZE = 512
 _vad.speech_probability = (
     lambda chunk: 0.9 if np.sqrt(np.mean(np.square(chunk))) > 0.02 else 0.05
 )
-sys.modules.setdefault("app.vad", _vad)
+sys.modules.setdefault("app.speech.vad", _vad)
 
 _whisper = types.ModuleType("mlx_whisper")  # only needed by the warm-load
 _whisper.transcribe = lambda *a, **k: {"text": ""}
 sys.modules.setdefault("mlx_whisper", _whisper)
 
-from app.asr import (  # noqa: E402
+from app.speech.asr import (  # noqa: E402
     SAMPLE_RATE,
     FRAME_MS,
     CALIBRATION_S,
@@ -107,7 +107,7 @@ def test_output_is_flat_1d():
 
 
 def test_clean_transcript_drops_non_speech_segments():
-    from app.asr import clean_transcript
+    from app.speech.asr import clean_transcript
 
     result = {
         "text": "hello there Thank you.",
@@ -120,21 +120,21 @@ def test_clean_transcript_drops_non_speech_segments():
 
 
 def test_clean_transcript_drops_a_doubtful_stock_phrase_on_a_short_clip():
-    from app.asr import clean_transcript
+    from app.speech.asr import clean_transcript
 
     noise = {"text": "Thank you.", "segments": [{"text": " Thank you.", "no_speech_prob": 0.3}]}
     assert clean_transcript(noise, 1.2) == ""
 
 
 def test_clean_transcript_keeps_a_clear_thank_you():
-    from app.asr import clean_transcript
+    from app.speech.asr import clean_transcript
 
     clear = {"text": "Thank you.", "segments": [{"text": " Thank you.", "no_speech_prob": 0.02}]}
     assert clean_transcript(clear, 1.2) == "Thank you."
 
 
 def test_clean_transcript_without_segments_trusts_the_text():
-    from app.asr import clean_transcript
+    from app.speech.asr import clean_transcript
 
     assert clean_transcript({"text": " hi there "}, 2.0) == "hi there"
 

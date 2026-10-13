@@ -14,17 +14,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Stub the model-heavy modules BEFORE app.engine imports them, so this test
+# Stub the model-heavy modules BEFORE app.chat.engine imports them, so this test
 # stays fast (Whisper/Kokoro/OpenAI are never loaded).
-for _name in ("app.asr", "app.tts", "app.agent", "app.sessions"):
+for _name in ("app.speech.asr", "app.speech.tts", "app.llm.agent", "app.chat.sessions"):
     sys.modules.setdefault(_name, types.ModuleType(_name))
 
 # The engine calls sessions.bump() and maybe_auto_rename() after each user turn;
 # make them no-ops here.
-sys.modules["app.sessions"].bump = lambda _sid: None
-sys.modules["app.sessions"].maybe_auto_rename = lambda _sid, _text: None
+sys.modules["app.chat.sessions"].bump = lambda _sid: None
+sys.modules["app.chat.sessions"].maybe_auto_rename = lambda _sid, _text: None
 
-import app.engine as engine  # noqa: E402
+import app.chat.engine as engine  # noqa: E402
 from app.io import QUIT  # noqa: E402
 
 

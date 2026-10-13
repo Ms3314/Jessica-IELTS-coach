@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from app.history import to_chat_messages
-from app.llm_keys import swap_openai_credentials, swap_tavily_key
+from app.chat.history import to_chat_messages
+from app.llm.llm_keys import swap_openai_credentials, swap_tavily_key
 
 
 def test_a_plain_conversation_becomes_alternating_messages():

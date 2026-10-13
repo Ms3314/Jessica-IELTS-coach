@@ -6,7 +6,7 @@ import numpy as np
 import sounddevice as sd
 from kokoro import KPipeline
 
-from app.interrupts import strip_tags
+from app.llm.interrupts import strip_tags
 
 pipeline = KPipeline(repo_id="hexgrad/Kokoro-82M", lang_code="a")
 

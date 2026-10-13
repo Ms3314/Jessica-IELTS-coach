@@ -13,12 +13,13 @@ import logging
 import threading
 import time
 
-from app import asr, tts, agent
+from app.speech import asr, tts
+from app.llm import agent
 from app.io import QUIT, BACKFILL
 
 logger = logging.getLogger("speakIelts.engine")
 
-# Lazy import: some tests stub app.agent at module level, and sessions imports
+# Lazy import: some tests stub app.llm.agent at module level, and sessions imports
 # the compiled agent graph. Loading it lazily keeps the engine testable.
 _sessions_db = None
 
@@ -26,7 +27,7 @@ _sessions_db = None
 def _get_sessions_db():
     global _sessions_db
     if _sessions_db is None:
-        from app import sessions as _sessions_db
+        from app.chat import sessions as _sessions_db
     return _sessions_db
 
 # only an utterance that IS one of these quits the app —
@@ -88,7 +89,7 @@ class Session:
         # If this Session was created because the user clicked the mic, open
         # with a personalised question before listening.
         if self.greet:
-            from app import greeting
+            from app.chat import greeting
 
             try:
                 self.events.on_state("speaking")

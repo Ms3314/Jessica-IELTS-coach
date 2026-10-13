@@ -14,8 +14,8 @@ from typing import Optional
 
 logger = logging.getLogger("speakIelts.profile")
 
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "data" / "profile.db"
-DEFAULT_EXAMS_DIR = Path(__file__).resolve().parent.parent / "data" / "exams"
+DEFAULT_PATH = Path(__file__).resolve().parents[2] / "data" / "profile.db"
+DEFAULT_EXAMS_DIR = Path(__file__).resolve().parents[2] / "data" / "exams"
 
 CRITERIA = ("fluency", "lexical", "grammar", "pronunciation")
 

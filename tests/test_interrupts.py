@@ -17,7 +17,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from app.interrupts import (
+from app.llm.interrupts import (
     ReplyTracker,
     interrupted_text,
     rewrite_last_reply,

@@ -2,7 +2,7 @@
 
 The exam is deterministic code, not a free-running chat: this module decides
 WHAT happens and WHEN (which part, how many questions, how long Part 2 lasts);
-the language model (app/examiner.py) only phrases the questions.
+the language model (app/exam/examiner.py) only phrases the questions.
 
     intro -> Part 1 (3 familiar topics) -> Part 2 (cue card: 1 min prep,
     up to 2 min talk, one rounding-off question) -> Part 3 (abstract

@@ -2,7 +2,7 @@
 
     python tests/test_tts.py
 
-(Importing app.tts does load the Kokoro pipeline — that's ~10s
+(Importing app.speech.tts does load the Kokoro pipeline — that's ~10s
 of model load; the split logic itself is pure string handling.)
 """
 import sys
@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.tts import _sentence_iter
+from app.speech.tts import _sentence_iter
 
 
 def test_basic_split():
@@ -58,7 +58,7 @@ def test_tail_is_flushed():
 def test_speak_stream_cancel_drops_reply():
     # a barge-in sets the cancel event: nothing may reach the sink
     import threading
-    from app.tts import speak_stream
+    from app.speech.tts import speak_stream
 
     class RecordingSink:
         def __init__(self):

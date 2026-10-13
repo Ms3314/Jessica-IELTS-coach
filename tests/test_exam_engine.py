@@ -11,12 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-# Stub the heavy modules BEFORE app.exam_engine imports them.
-for _name in ("app.asr", "app.tts"):
+# Stub the heavy modules BEFORE app.exam.engine imports them.
+for _name in ("app.speech.asr", "app.speech.tts"):
     sys.modules.setdefault(_name, types.ModuleType(_name))
 
-from app import examiner, ielts  # noqa: E402
-import app.exam_engine as ee  # noqa: E402
+from app.exam import examiner, ielts  # noqa: E402
+import app.exam.engine as ee  # noqa: E402
 from app.io import BACKFILL, QUIT  # noqa: E402
 
 SPOKEN = []          # every line the examiner says, in order

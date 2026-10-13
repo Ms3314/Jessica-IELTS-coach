@@ -8,7 +8,7 @@ import { cn } from "cn";
 import type { Mode } from "@/lib/api";
 import type { FrameEmitter } from "@/lib/audio/frame-source";
 import type { VisualFrame } from "@/lib/audio/types";
-import type { EngineState } from "@/lib/useVoice";
+import type { EngineState } from "@/lib/voice/useVoice";
 
 interface Props {
   mode: Mode;
