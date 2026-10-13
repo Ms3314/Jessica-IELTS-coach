@@ -3,6 +3,8 @@ import { Clock, Mic, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ExamLength } from "@/lib/settings";
 import { PART_TITLES } from "@/lib/exam";
 
 interface ScheduleEntry {
@@ -14,23 +16,37 @@ interface ScheduleEntry {
 
 interface Props {
   connected: boolean;
+  length: ExamLength;
+  onLengthChange: (length: ExamLength) => void;
   onBegin: () => void;
 }
 
-const FALLBACK: ScheduleEntry[] = [
-  { part: 1, limit_s: 300 },
-  { part: 2, prep_s: 60, talk_s: 120 },
-  { part: 3, limit_s: 300 },
-];
+const FALLBACK: Record<ExamLength, ScheduleEntry[]> = {
+  full: [
+    { part: 1, limit_s: 300 },
+    { part: 2, prep_s: 60, talk_s: 120 },
+    { part: 3, limit_s: 300 },
+  ],
+  short: [
+    { part: 1, limit_s: 120 },
+    { part: 2, prep_s: 30, talk_s: 60 },
+    { part: 3, limit_s: 120 },
+  ],
+};
 
-const minutes = (s: number) => {
+// introduction and closing add about a minute to the timed parts; rounded down, so "about 6 min"
+const minutesRounded = (entries: ScheduleEntry[]) =>
+  Math.floor((entries.reduce((sum, e) => sum + (e.limit_s ?? 0) + (e.prep_s ?? 0) + (e.talk_s ?? 0), 0) + 60) / 60);
+
+const span = (s: number) => {
+  if (s < 60) return `${Math.round(s)} sec`;
   const m = s / 60;
   return Number.isInteger(m) ? `${m} min` : `${m.toFixed(1)} min`;
 };
 
 function duration(e: ScheduleEntry): string {
-  if (e.part === 2) return `${minutes(e.prep_s ?? 60)} to prepare, then up to ${minutes(e.talk_s ?? 120)} talking`;
-  return `about ${minutes(e.limit_s ?? 300)}`;
+  if (e.part === 2) return `${span(e.prep_s ?? 60)} to prepare, then up to ${span(e.talk_s ?? 120)} talking`;
+  return `about ${span(e.limit_s ?? 300)}`;
 }
 
 const DESCRIPTION: Record<number, string> = {
@@ -55,19 +71,24 @@ function Points({ icon: Icon, title, items }: { icon: typeof Mic; title: string;
 }
 
 /** The "Before you begin" screen: what the test is, how it works, what happens to your voice. */
-export default function ExamIntro({ connected, onBegin }: Props) {
-  const [schedule, setSchedule] = useState<ScheduleEntry[]>(FALLBACK);
+export default function ExamIntro({ connected, length, onLengthChange, onBegin }: Props) {
+  const [fetched, setFetched] = useState<{ length: ExamLength; schedule: ScheduleEntry[] } | null>(null);
 
   // The server knows the real timings (they can be shortened for development).
   useEffect(() => {
-    fetch("/ielts/schedule")
+    let cancelled = false;
+    fetch(`/ielts/schedule?length=${length}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((s) => Array.isArray(s) && s.length === 3 && setSchedule(s))
+      .then((s) => !cancelled && Array.isArray(s) && s.length === 3 && setFetched({ length, schedule: s }))
       .catch(() => undefined);
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [length]);
 
-  const total =
-    schedule.reduce((sum, e) => sum + (e.limit_s ?? 0) + (e.prep_s ?? 0) + (e.talk_s ?? 0), 0) + 60; // + intro and closing
+  const schedule = fetched?.length === length ? fetched.schedule : FALLBACK[length];
+  const shortMin = minutesRounded(FALLBACK.short);
+  const fullMin = minutesRounded(FALLBACK.full);
 
   return (
     <Card className="mx-auto w-full max-w-3xl" aria-labelledby="exam-intro-title">
@@ -76,8 +97,14 @@ export default function ExamIntro({ connected, onBegin }: Props) {
           IELTS Speaking mock test
         </CardTitle>
         <CardDescription className="flex items-center gap-1.5">
-          <Clock className="size-4" /> About {Math.round(total / 60)} minutes · Jessica is your examiner
+          <Clock className="size-4" /> About {minutesRounded(schedule)} minutes · Jessica is your examiner
         </CardDescription>
+        <Tabs value={length} onValueChange={(v) => onLengthChange(v as ExamLength)} className="pt-2">
+          <TabsList aria-label="Test length">
+            <TabsTrigger value="short">Short · about {shortMin} min</TabsTrigger>
+            <TabsTrigger value="full">Full · about {fullMin} min</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </CardHeader>
 
       <CardContent className="grid gap-6">
@@ -110,7 +137,8 @@ export default function ExamIntro({ connected, onBegin }: Props) {
             items={[
               "Jessica behaves like a real examiner. She won't comment on or correct your answers during the test.",
               "Each part has a countdown on screen, and a part ends when its time is up.",
-              "You can't pause or interrupt her. If you missed a question, say “Sorry, could you repeat that?”",
+              "You record each answer yourself: press Record (or Space) when you're ready to answer, and Stop when you've finished.",
+              "You can't pause or interrupt her. If you missed a question, record “Sorry, could you repeat that?”",
               "At the end you get estimated band scores for the four IELTS criteria, with specific tips.",
             ]}
           />
@@ -121,7 +149,7 @@ export default function ExamIntro({ connected, onBegin }: Props) {
               items={[
                 "Find a quiet room and allow microphone access when asked.",
                 "Speak naturally and give full answers, a few sentences in Part 1.",
-                "Take your time to think. A short pause won't end your answer.",
+                "Take your time to think before you press Record. Nothing ends your answer except you.",
               ]}
             />
             <Points

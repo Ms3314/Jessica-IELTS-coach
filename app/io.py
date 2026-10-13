@@ -16,10 +16,16 @@ import numpy as np
 # Sentinel returned by a source when the user wants to quit the session.
 QUIT = object()
 
+# Put on the audio queue when the user presses Stop while recording by hand: the
+# answer is complete, finish the clip now.
+STOP = object()
+
 # Sentinel returned by a source when the user paused briefly. The engine should
 # surface a silent pause cue to the UI and keep listening — it must NOT
 # finalize/transcribe the turn yet.
 BACKFILL = object()
+
+SAMPLE_RATE = 16000  # the microphone audio the browser sends
 
 
 # --- interfaces --------------------------------------------------------------
@@ -140,6 +146,63 @@ class WebSocketSource(AudioSource):
                 self._in_q.put(QUIT)
                 return
 
+    def listen_manual(
+        self,
+        wait_s: float = 45.0,
+        max_s: float = 90.0,
+        on_start=None,
+        min_s: float = 0.4,
+        limit_s: float | None = None,
+    ):
+        """Record exactly what the user chooses to say: from when they press Record
+        until they press Stop. No voice detection decides anything.
+
+        wait_s:   give up (None) if they never start within this long
+        max_s:    finish the clip by itself at this length
+        limit_s:  a hard stop this many seconds from now, whatever else is happening:
+                  a recording in progress is cut off there (it is the part's clock
+                  running out) and a window nobody started is closed
+        on_start: called once, when the first audio arrives
+        Returns a clip, None (nothing recorded, or shorter than min_s), or QUIT.
+        """
+        chunks, samples, started = [], 0, False
+        deadline = time.monotonic() + wait_s
+        hard_stop = None if limit_s is None else time.monotonic() + limit_s
+        while True:
+            timeout = 0.1
+            if hard_stop is not None:
+                if time.monotonic() >= hard_stop:
+                    if not started:
+                        return None
+                    break                     # time's up: keep what was said so far
+                timeout = min(timeout, hard_stop - time.monotonic())
+            if not started:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                timeout = min(timeout, left)
+            try:
+                item = self._in_q.get(timeout=timeout)
+            except queue.Empty:
+                continue
+            if item is QUIT:
+                return QUIT
+            if item is STOP:
+                if started:
+                    break
+                continue          # a stray Stop before any audio: keep waiting
+            pcm = np.frombuffer(item, dtype=np.int16)
+            if not started:
+                started = True
+                if on_start:
+                    on_start()
+            chunks.append(pcm)
+            samples += len(pcm)
+            if samples >= max_s * SAMPLE_RATE:
+                break
+        clip = np.concatenate(chunks)
+        return clip if len(clip) >= min_s * SAMPLE_RATE else None
+
     def listen(self):
         # Only start a fresh recording for a new turn. After a BACKFILL the
         # recorder keeps the audio it has already collected.
@@ -151,6 +214,8 @@ class WebSocketSource(AudioSource):
             item = self._in_q.get()
             if item is QUIT:
                 return QUIT
+            if item is STOP:      # a Stop press that belongs to manual recording
+                continue
             pcm = np.frombuffer(item, dtype=np.int16)
             result = self.recorder.push(pcm)
             if result is BACKFILL:

@@ -4,12 +4,15 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Mode } from "@/lib/api";
+import type { ExamLength } from "@/lib/settings";
 
 interface Props {
   mode: Mode;
   connected: boolean;
   /** No OpenAI key yet: nothing can start until one is added. */
   needsKey: boolean;
+  examLength: ExamLength;
+  onExamLength: (length: ExamLength) => void;
   onStart: () => void;
   onOpenSettings: () => void;
 }
@@ -21,7 +24,7 @@ const TIPS = [
 ];
 
 /** What you see when you open a new conversation or a new mock test. */
-export default function StartView({ mode, connected, needsKey, onStart, onOpenSettings }: Props) {
+export default function StartView({ mode, connected, needsKey, examLength, onExamLength, onStart, onOpenSettings }: Props) {
   const keyNotice = needsKey && (
     <Alert variant="warning" className="mx-auto max-w-3xl items-center">
       <KeyRound />
@@ -39,7 +42,7 @@ export default function StartView({ mode, connected, needsKey, onStart, onOpenSe
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-7">
       {keyNotice}
       {mode === "ielts" ? (
-        <ExamIntro connected={connected && !needsKey} onBegin={onStart} />
+        <ExamIntro connected={connected && !needsKey} length={examLength} onLengthChange={onExamLength} onBegin={onStart} />
       ) : (
         <Card className="mx-auto w-full max-w-3xl">
           <CardHeader>

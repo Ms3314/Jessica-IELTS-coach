@@ -54,10 +54,12 @@ export function TestReview({
   sessionId,
   onAgain,
   onChat,
+  onOpenProfile,
 }: {
   sessionId: string;
   onAgain: () => void;
   onChat: () => void;
+  onOpenProfile?: () => void;
 }) {
   const [examId, setExamId] = useState<string | null>(null);
   const [report, setReport] = useState<Report | null>(null);
@@ -94,7 +96,15 @@ export function TestReview({
   }
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-7">
-      <ReportView sessionId={sessionId} examId={examId} report={report} error={null} onAgain={onAgain} onChat={onChat} />
+      <ReportView
+        sessionId={sessionId}
+        examId={examId}
+        report={report}
+        error={null}
+        onAgain={onAgain}
+        onChat={onChat}
+        onOpenProfile={onOpenProfile}
+      />
     </div>
   );
 }

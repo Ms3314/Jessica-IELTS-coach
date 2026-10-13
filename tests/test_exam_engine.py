@@ -24,13 +24,18 @@ NOW = [0.0]          # the fake clock; only listening makes time pass
 SECONDS_PER_ANSWER = 40.0
 
 
+SPEAK_COST = [0.0]   # seconds of the fake clock one spoken line takes
+
+
 def _fake_speak(text, sink=None, voice=None):
     SPOKEN.append(text)
+    NOW[0] += SPEAK_COST[0]
 
 
 def _fake_speak_stream(stream, sink=None, voice=None, on_sentence=None, **_k):
     text = "".join(stream)
     SPOKEN.append(text)
+    NOW[0] += SPEAK_COST[0]
     if on_sentence:
         on_sentence(text)
     return False
@@ -91,6 +96,17 @@ class FakeSource:
         NOW[0] += SECONDS_PER_ANSWER
         return self.clips.pop(0) if self.clips else QUIT
 
+    manual_calls = None
+
+    def listen_manual(self, wait_s=45.0, max_s=90.0, on_start=None, min_s=0.4, limit_s=None):
+        # an answer takes its usual time, unless the part's clock cuts it off sooner
+        NOW[0] += SECONDS_PER_ANSWER if limit_s is None else min(SECONDS_PER_ANSWER, max(limit_s, 0))
+        self.manual_calls = (self.manual_calls or []) + [{"wait_s": wait_s, "max_s": max_s, "limit_s": limit_s}]
+        clip = self.clips.pop(0) if self.clips else QUIT
+        if on_start and clip is not None and clip is not QUIT and clip is not BACKFILL:
+            on_start()
+        return None if clip is BACKFILL else clip
+
     def flush(self):
         self.calls.append("flush")
 
@@ -142,16 +158,18 @@ def _steps(p1=100.0, p3=100.0):
     ]
 
 
-def _run(clips, texts=None, steps=None, llm=None, sink=None, on_complete=None):
+def _run(clips, texts=None, steps=None, llm=None, sink=None, on_complete=None, manual=False, length=None):
     SPOKEN.clear()
     NOW[0] = 0.0
+    SPEAK_COST[0] = 0.0
     texts = list(texts) if texts is not None else None
     ee.asr.transcribe = lambda _clip: (texts.pop(0) if texts else "an answer")
     tmp = tempfile.TemporaryDirectory()
     log = ielts.ExamLog("s", "e", root=Path(tmp.name))
     src, ev = FakeSource(clips), FakeEvents()
     sess = ee.ExamSession(src, sink or object(), ev, llm or FakeLLM(), steps=steps or _steps(),
-                          log=log, on_complete=on_complete, sleep=lambda _s: None, clock=lambda: NOW[0])
+                          log=log, on_complete=on_complete, sleep=lambda _s: None, clock=lambda: NOW[0],
+                          manual=manual, length=length)
     sess._wait = lambda _s: None      # don't really wait the one-minute preparation
     sess.loop()
     return sess, src, ev, log, tmp
@@ -304,7 +322,7 @@ def test_the_users_pause_setting_applies_to_part_1_and_3_answers_but_not_the_lon
     src = FakeSource([_clip(2), _clip(3)])
     sess = ee.ExamSession(src, object(), FakeEvents(), FakeLLM(), steps=[ielts.Step(ielts.INTRO, 0)],
                           log=ielts.ExamLog("s", "e", root=Path(tmp.name)), sleep=lambda _s: None,
-                          clock=lambda: NOW[0])
+                          clock=lambda: NOW[0], manual=False)
     sess.pause_s = 2.2                      # what the server sets from the Settings slider
     sess.loop()
     assert ("pause", 2.2) in src.calls
@@ -312,6 +330,161 @@ def test_the_users_pause_setting_applies_to_part_1_and_3_answers_but_not_the_lon
     sess._card = examiner.CueCard(title="t", points=["a", "b", "c"], explain="e", theme="x")
     sess._part2_talk()
     assert ("pause", ielts.PART2_PAUSE_S) in src.calls, "Part 2 keeps its own long pause allowance"
+    tmp.cleanup()
+
+
+# --- recording by hand (the real test's default) and the short length ---------------------
+
+def test_by_hand_the_candidate_is_given_an_answer_window_for_every_question():
+    _, src, ev, log, tmp = _run(_full_clips(), manual=True)
+    windows = [e for e in ev.exam if e["event"] == "answer_window"]
+    ends = [e for e in ev.exam if e["event"] == "answer_end"]
+    assert len(windows) == len(ends) == len(src.manual_calls) > 5
+    assert windows[0]["max_s"] == ielts.MANUAL_ANSWER_CAP_S and windows[0]["wait_s"] == ielts.MANUAL_WAIT_S
+    assert log.finished is True and [t.part for t in log.turns][:2] == [1, 1]
+    tmp.cleanup()
+
+
+def test_by_hand_nothing_depends_on_pauses_so_no_voice_detection_settings_are_touched():
+    _, src, _, _, tmp = _run(_full_clips(), manual=True)
+    assert not [c for c in src.calls if isinstance(c, tuple)], "no pause/limit/idle configuration"
+    tmp.cleanup()
+
+
+def test_by_hand_the_part2_clock_starts_when_the_candidate_starts_speaking():
+    _, src, ev, _, tmp = _run(_full_clips(), manual=True)
+    names = [e["event"] for e in ev.exam]
+    i_talk = names.index("talk")
+    # the answer window opens first; the timer event only follows once speech began
+    assert names[i_talk - 1] == "answer_window"
+    assert ev.exam[i_talk]["max_seconds"] == ielts.PART2_TALK_MAX_S
+    part2 = [c for c in src.manual_calls if c["max_s"] == ielts.timing_for("full").part2_talk_s]
+    assert len(part2) == 1
+    tmp.cleanup()
+
+
+def test_by_hand_an_unanswered_window_is_a_no_answer_and_the_test_moves_on():
+    clips = [None, _clip(3)]
+    steps = [ielts.Step(ielts.INTRO, 0), ielts.Step(ielts.P1_SECTION, 1, 10)]
+    _, _, _, log, tmp = _run(clips, ["Hello"], steps=steps, manual=True)
+    assert log.turns[0].no_answer is True and log.turns[1].answer == "Hello"
+    tmp.cleanup()
+
+
+def test_by_hand_a_repeat_request_still_works():
+    _, _, _, log, tmp = _run([_clip(1), _clip(1)], ["Sorry, could you repeat that?", "Sam"],
+                             steps=[ielts.Step(ielts.INTRO, 0)], llm=FakeLLM(lines=False), manual=True)
+    assert any(line.startswith(examiner.REPEAT_LEAD) for line in SPOKEN)
+    assert log.turns[0].answer == "Sam"
+    tmp.cleanup()
+
+
+def test_by_hand_a_short_part2_talk_still_gets_one_invitation_to_say_more():
+    clips = [_clip(2)] + [_clip(3)] * 3 + [_clip(20), _clip(15)] + [_clip(3)] + [_clip(4)] * 3
+    _, _, _, log, tmp = _run(clips, manual=True, llm=FakeLLM(lines=False))
+    assert examiner.PART2_MORE_LINE in SPOKEN
+    assert len([t for t in log.turns if t.part == 2][0].audio) == 2
+    tmp.cleanup()
+
+
+def test_the_exam_records_which_length_it_was():
+    for length in ("full", "short"):
+        _, _, _, log, tmp = _run(_full_clips(), manual=True, length=length)
+        assert log.length == length
+        tmp.cleanup()
+
+
+def test_the_short_test_announces_its_own_shorter_times():
+    clips = [_clip(2)] + [_clip(3)] * 3 + [_clip(40)] + [_clip(3)] + [_clip(4)] * 3   # 40 s answers, 120 s parts
+    _, _, ev, log, tmp = _run(clips, manual=True, length="short", llm=FakeLLM(lines=False),
+                              steps=ielts.build_steps("short"))
+    assert ev.exam[0]["length"] == "short" and ev.exam[0]["schedule"] == ielts.schedule("short")
+    prep = [e for e in ev.exam if e["event"] == "prep"][0]
+    assert prep["seconds"] == 30.0
+    parts = {e["part"]: e["limit_s"] for e in ev.exam if e["event"] == "part"}
+    assert parts == {1: 120.0, 3: 120.0}
+    assert any("30 seconds" in line for line in SPOKEN), "the examiner says the short times, not the full ones"
+    assert not any("one minute to" in line.replace("up to one minute", "") for line in SPOKEN)
+    tmp.cleanup()
+
+
+def test_a_short_talk_is_judged_against_the_short_time_limit():
+    # 35 s is plenty for a 60 s limit (needs >= 30 s), so no invitation to say more
+    clips = [_clip(2)] + [_clip(3)] * 3 + [_clip(35)] + [_clip(3)] + [_clip(4)] * 3
+    _run(clips, manual=True, length="short", llm=FakeLLM(lines=False), steps=ielts.build_steps("short"))
+    assert examiner.PART2_MORE_LINE not in SPOKEN
+
+
+# --- the clock is hard ----------------------------------------------------------------------
+
+def test_the_part_clock_cuts_off_the_answer_in_progress_and_the_test_moves_on():
+    steps = [ielts.Step(ielts.P1_SECTION, 1, 100), ielts.Step(ielts.END, 0)]
+    _, src, ev, log, tmp = _run([_clip(30)] * 5, steps=steps, manual=True)
+    # answers take 40 s; questions start at 0 s, 40 s and 80 s, with 100, 60 and 20 s left
+    assert [round(c["limit_s"]) for c in src.manual_calls] == [100, 60, 20]
+    assert len([t for t in log.turns if t.part == 1]) == 3
+    assert log.turns[-1].answer, "the answer cut off by the clock is still kept and transcribed"
+    assert NOW[0] == 100, "the part ended exactly when its clock did"
+    assert log.finished is True, "and the test carried on to the next step"
+    tmp.cleanup()
+
+
+def test_part_three_has_the_same_hard_clock():
+    # Part 3 questions are about the Part 2 topic, so the card has to exist first
+    steps = [ielts.Step(ielts.P2_SETUP, 2), ielts.Step(ielts.P3_SECTION, 3, 30), ielts.Step(ielts.END, 0)]
+    _, src, _, _, tmp = _run([_clip(5)] * 3, steps=steps, manual=True)
+    assert round(src.manual_calls[0]["limit_s"]) == 30
+    tmp.cleanup()
+
+
+def test_no_new_question_is_started_in_the_last_seconds_of_a_part():
+    steps = [ielts.Step(ielts.P1_SECTION, 1, 85), ielts.Step(ielts.END, 0)]
+    _, src, _, log, tmp = _run([_clip(3)] * 5, steps=steps, manual=True)
+    # after two 40 s answers only 5 s are left, less than ee.MIN_NEW_QUESTION_S
+    assert len(src.manual_calls) == 2 and len(log.turns) == 2
+    tmp.cleanup()
+
+
+def test_a_question_that_eats_the_rest_of_the_part_gets_no_recording_window():
+    SPEAK_COST[0] = 0.0
+    steps = [ielts.Step(ielts.P1_SECTION, 1, 20), ielts.Step(ielts.END, 0)]
+
+    def run_with_slow_speech():
+        import types as _t
+
+        clips = [_clip(3)] * 3
+        SPOKEN.clear()
+        NOW[0] = 0.0
+        ee.asr.transcribe = lambda _c: "an answer"
+        SPEAK_COST[0] = 25.0           # asking the question takes longer than the whole part
+        tmp = tempfile.TemporaryDirectory()
+        log = ielts.ExamLog("s", "e", root=Path(tmp.name))
+        src, ev = FakeSource(clips), FakeEvents()
+        ee.ExamSession(src, object(), ev, FakeLLM(), steps=steps, log=log, sleep=lambda _s: None,
+                       clock=lambda: NOW[0], manual=True).loop()
+        SPEAK_COST[0] = 0.0
+        return src, ev, log, tmp
+
+    src, ev, log, tmp = run_with_slow_speech()
+    assert src.manual_calls is None, "nothing to record when the time is already gone"
+    assert not [e for e in ev.exam if e["event"] == "answer_window"]
+    assert log.turns[0].no_answer is True
+    tmp.cleanup()
+
+
+def test_part_two_talk_is_ended_by_its_clock_not_by_a_margin():
+    _, src, _, _, tmp = _run(_full_clips(), manual=True)
+    talk = [c for c in src.manual_calls if c["max_s"] == ielts.PART2_TALK_MAX_S]
+    assert len(talk) == 1 and talk[0]["limit_s"] is None, "Part 2 uses the talk length itself as its cap"
+    tmp.cleanup()
+
+
+def test_the_invitation_to_say_more_only_gets_the_time_that_is_left():
+    clips = [_clip(2)] + [_clip(3)] * 3 + [_clip(20), _clip(15)] + [_clip(3)] + [_clip(4)] * 3
+    _, src, _, _, tmp = _run(clips, manual=True, llm=FakeLLM(lines=False))
+    caps = [c["max_s"] for c in src.manual_calls]
+    assert ielts.PART2_TALK_MAX_S in caps
+    assert ielts.PART2_TALK_MAX_S - 20 in caps, "120 s minus the 20 s already talked"
     tmp.cleanup()
 
 

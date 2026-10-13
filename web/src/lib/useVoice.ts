@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { AudioEngine } from "./audio";
 import { INITIAL_EXAM, examReducer, type ExamEvent } from "./exam";
+import type { ExamLength } from "./settings";
 import { addAgentSentence, addUserText, markInterrupted, type Line } from "./transcript";
 
 export type EngineState =
@@ -35,9 +36,11 @@ export interface VoiceOptions {
   pauseS: number;
   /** "chat" = free conversation, "ielts" = the mock test. */
   mode: "chat" | "ielts";
+  /** Which mock test to take (only used when mode is "ielts"). */
+  examLength: ExamLength;
 }
 
-export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
+export function useVoice({ voiceInterrupt, pauseS, mode, examLength }: VoiceOptions) {
   const engineRef = useRef<AudioEngine | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Sent as ?session=... so reconnects resume the same conversation memory.
@@ -89,6 +92,14 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
   pauseSRef.current = pauseS;
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const examLengthRef = useRef(examLength);
+  examLengthRef.current = examLength;
+
+  // In the mock test the candidate records by hand: the microphone is only open
+  // between pressing Record and pressing Stop, and nothing else decides when an
+  // answer ends.
+  const [recording, setRecording] = useState(false);
+  const recordingRef = useRef(false);
 
   // IELTS mock test progress, driven by the server's "exam" events.
   const [exam, dispatchExam] = useReducer(examReducer, INITIAL_EXAM);
@@ -124,10 +135,18 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
   const syncCapturing = useCallback(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    engine.setCapturing(
-      captureRef.current && engineReadyRef.current && !micMutedRef.current
-    );
+    const wanted = modeRef.current === "ielts" ? recordingRef.current : captureRef.current;
+    engine.setCapturing(wanted && engineReadyRef.current && !micMutedRef.current);
   }, []);
+
+  const setRecordingNow = useCallback(
+    (on: boolean) => {
+      recordingRef.current = on;
+      setRecording(on);
+      syncCapturing();
+    },
+    [syncCapturing]
+  );
 
   // by: "voice" = the user talked over her, "button" = pressed Stop. The server
   // stitches a voice interruption onto the previous message but treats a Stop
@@ -188,6 +207,8 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
       };
       ws.onclose = () => {
         clearPreparing();
+        recordingRef.current = false;
+        setRecording(false);
         setConnected(false);
         // The server is gone, so we're no longer capturing until a new
         // session's state arrives after reconnect.
@@ -214,6 +235,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
             syncCapturing();
           } else if (msg.type === "exam") {
             dispatchExam({ type: "event", event: msg as ExamEvent, now: Date.now() });
+            if (msg.event === "answer_end") setRecordingNow(false);
           } else if (msg.type === "agent") {
             const fresh = freshLineRef.current;
             setTranscript((prev) => addAgentSentence(prev, msg.text as string, fresh));
@@ -250,7 +272,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
       engine.stop();
       wsRef.current?.close();
     };
-  }, [syncCapturing, clearPause, showPause, clearPreparing]);
+  }, [syncCapturing, clearPause, showPause, clearPreparing, setRecordingNow]);
 
   // Voice-activity + "Jessica is audible" watchdog. The server emits "idle"
   // and "listening" as soon as synthesis finishes — but the browser is still
@@ -275,6 +297,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
       const st = stateRef.current;
       const bargeable =
         voiceInterruptRef.current &&
+        modeRef.current !== "ielts" &&
         (st === "transcribing" || st === "thinking" || st === "speaking" || speakingNow) &&
         !ignoreAudioRef.current;
       if (bargeable) {
@@ -310,6 +333,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
         JSON.stringify({
           type: "start",
           mode: modeRef.current,
+          exam_length: examLengthRef.current,
           settings: { pause_s: pauseSRef.current },
         })
       );
@@ -327,6 +351,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
     engineReadyRef.current = false;
     ignoreAudioRef.current = false;
     clearPreparing();
+    setRecordingNow(false);
     dispatchExam({ type: "ended" }); // hanging up mid-test ends it (unfinished)
     if (ignoreTimerRef.current) {
       clearTimeout(ignoreTimerRef.current);
@@ -343,7 +368,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
     }
     ws?.close();
     engineRef.current?.stop();
-  }, [clearPause, clearPreparing]);
+  }, [clearPause, clearPreparing, setRecordingNow]);
 
   const switchSession = useCallback(
     (id: string) => {
@@ -362,10 +387,11 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
       setState("idle");
       setStarted(false);
       clearPreparing();
+      setRecordingNow(false);
       dispatchExam({ type: "reset" });
       wsRef.current?.close();
     },
-    [clearPause, clearPreparing]
+    [clearPause, clearPreparing, setRecordingNow]
   );
 
   const newSession = useCallback(() => {
@@ -410,6 +436,29 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
 
   const resetExam = useCallback(() => dispatchExam({ type: "reset" }), []);
 
+  // When the test is over, hang up by itself: the screen goes straight to the
+  // analysis instead of waiting for the candidate to press End.
+  useEffect(() => {
+    if (complete && started && modeRef.current === "ielts") quit();
+  }, [complete, started, quit]);
+
+  /** Begin recording an answer (only while the examiner is waiting for one). */
+  const startRecording = useCallback(() => {
+    if (!examRef.current.answerWindow || recordingRef.current) return;
+    setRecordingNow(true);
+  }, [setRecordingNow]);
+
+  /** Finish the answer. A moment's grace first, so the last words aren't clipped. */
+  const stopRecording = useCallback(() => {
+    if (!recordingRef.current) return;
+    setTimeout(() => {
+      if (!recordingRef.current) return;
+      setRecordingNow(false);
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "record_stop" }));
+    }, 250);
+  }, [setRecordingNow]);
+
   const toggleMicMute = useCallback(() => {
     setMicMuted((prev) => {
       const next = !prev;
@@ -433,6 +482,9 @@ export function useVoice({ voiceInterrupt, pauseS, mode }: VoiceOptions) {
     sessionId,
     exam,
     transcript,
+    recording,
+    startRecording,
+    stopRecording,
     resetExam,
     start,
     quit,

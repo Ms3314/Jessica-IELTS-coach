@@ -254,8 +254,11 @@ def generate_report(llm, log: ExamLog, analysis: dict) -> dict:
 
 # --- orchestration -----------------------------------------------------------------------------
 
-def run_exam_analysis(log: ExamLog, llm, events=None, **analysis_kwargs) -> dict:
-    """Analyse a finished (or abandoned) exam and save the report. Never raises."""
+def run_exam_analysis(log: ExamLog, llm, events=None, store=None, **analysis_kwargs) -> dict:
+    """Analyse a finished (or abandoned) exam and save the report. Never raises.
+
+    `store(report, log)`, if given, saves the scores to the user's profile.
+    """
     def emit(payload):
         if events is not None:
             try:
@@ -274,6 +277,12 @@ def run_exam_analysis(log: ExamLog, llm, events=None, **analysis_kwargs) -> dict
     try:
         analysis = analyse_exam(log, **analysis_kwargs)
         report = generate_report(llm, log, analysis)
+        report["profile_saved"] = False
+        if store is not None:
+            try:
+                report["profile_saved"] = bool(store(report, log))
+            except Exception:
+                logger.warning("could not save the scores to the profile", exc_info=True)
         (log.dir / "report.json").write_text(json.dumps(report, indent=2))
         emit({"event": "report", "report": report})
         return report

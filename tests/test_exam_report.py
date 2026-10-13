@@ -192,6 +192,40 @@ def test_full_run_saves_the_report_and_emits_progress():
         assert saved["overall_band"] == r["overall_band"]
 
 
+def test_scores_are_handed_to_the_profile_store_and_the_report_says_so():
+    saved = []
+    with tempfile.TemporaryDirectory() as tmp:
+        log = _make_log(tmp)
+        ev = Events()
+        r = er.run_exam_analysis(log, FakeLLM(_llm_report()), ev, store=lambda rep, lg: saved.append((rep, lg)) or True,
+                                 transcribe=_fake_transcribe, prosody=_fake_prosody)
+        assert len(saved) == 1 and saved[0][1] is log and saved[0][0]["overall_band"] == r["overall_band"]
+        assert r["profile_saved"] is True
+        assert json.loads((log.dir / "report.json").read_text())["profile_saved"] is True
+
+
+def test_a_failing_store_never_loses_the_report():
+    def boom(_r, _l):
+        raise RuntimeError("disk full")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log = _make_log(tmp)
+        r = er.run_exam_analysis(log, FakeLLM(_llm_report()), Events(), store=boom,
+                                 transcribe=_fake_transcribe, prosody=_fake_prosody)
+        assert r["profile_saved"] is False and "overall_band" in r
+        assert (log.dir / "report.json").exists()
+
+
+def test_nothing_is_stored_when_there_was_no_report():
+    saved = []
+    with tempfile.TemporaryDirectory() as tmp:
+        er.run_exam_analysis(_make_log(tmp, answered=2), FakeLLM(_llm_report()), Events(),
+                             store=lambda *a: saved.append(a), transcribe=_fake_transcribe, prosody=_fake_prosody)
+        er.run_exam_analysis(_make_log(tmp), FakeLLM(fail=True), Events(),
+                             store=lambda *a: saved.append(a), transcribe=_fake_transcribe, prosody=_fake_prosody)
+    assert saved == []
+
+
 def test_a_model_failure_is_reported_not_raised():
     with tempfile.TemporaryDirectory() as tmp:
         log = _make_log(tmp)

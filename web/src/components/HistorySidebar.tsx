@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FileText, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react";
+import { BarChart3, FileText, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,6 +25,9 @@ interface Props {
   onRename: (id: string, name: string) => void;
   onDelete: (session: SessionMeta) => void;
   onOpenSettings: () => void;
+  onOpenProfile: () => void;
+  /** the progress screen is showing */
+  profileActive: boolean;
 }
 
 /** The left column: start something new, or reopen anything you've done before. */
@@ -38,6 +41,8 @@ export default function HistorySidebar({
   onRename,
   onDelete,
   onOpenSettings,
+  onOpenProfile,
+  profileActive,
 }: Props) {
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -161,7 +166,17 @@ export default function HistorySidebar({
       </ScrollArea>
 
       <Separator />
-      <div className="p-3">
+      <div className="grid gap-0.5 p-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onOpenProfile}
+          disabled={locked}
+          aria-current={profileActive ? "page" : undefined}
+          className={cn("w-full justify-start text-muted-foreground", profileActive && "bg-accent text-foreground")}
+        >
+          <BarChart3 className="size-4" /> Your progress
+        </Button>
         <Button variant="ghost" size="sm" onClick={onOpenSettings} className="w-full justify-start text-muted-foreground">
           <Settings className="size-4" /> Settings
         </Button>

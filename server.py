@@ -32,11 +32,12 @@ from pydantic import BaseModel
 from app import agent as agent_module
 from app import settings_store
 from app import exam_report
+from app import profile
 from app.engine import Session
 from app.exam_engine import ExamSession
 from app import ielts
 from app.ielts import EXAMS_DIR, ExamLog
-from app.io import WebSocketSource, WebSocketSink, WebSocketHandler, QUIT
+from app.io import WebSocketSource, WebSocketSink, WebSocketHandler, QUIT, STOP
 from app import sessions as sessions_db
 
 logging.basicConfig(
@@ -144,10 +145,16 @@ async def delete_session(session_id: str):
     return {"ok": True}
 
 
+@app.get("/profile")
+async def get_profile():
+    """Your mock-test scores over time (kept on this computer)."""
+    return await asyncio.get_running_loop().run_in_executor(None, profile.overview)
+
+
 @app.get("/ielts/schedule")
-async def ielts_schedule():
-    """The mock test's timings, so the 'before you begin' screen is always accurate."""
-    return ielts.schedule()
+async def ielts_schedule(length: str | None = None):
+    """The mock test's timings for a length ("full" or "short"), so the notice is always accurate."""
+    return ielts.schedule(length)
 
 
 @app.get("/exams/{session_id}")
@@ -190,7 +197,8 @@ async def reanalyse_exam(session_id: str, exam_id: str):
     except FileNotFoundError:
         return JSONResponse({"error": "not found"}, status_code=404)
     threading.Thread(
-        target=exam_report.run_exam_analysis, args=(log, agent_module.model), daemon=True
+        target=exam_report.run_exam_analysis, args=(log, agent_module.model),
+        kwargs={"store": profile.record_exam}, daemon=True,
     ).start()
     return {"ok": True}
 
@@ -212,6 +220,7 @@ async def ws_endpoint(ws: WebSocket):
     started = False
     start_settings = {}
     mode = "chat"
+    exam_length = None
     try:
         while not started:
             raw = await ws.receive_text()
@@ -226,6 +235,7 @@ async def ws_endpoint(ws: WebSocket):
                         start_settings = data["settings"]
                     if data.get("mode") == "ielts":
                         mode = "ielts"
+                        exam_length = data.get("exam_length") if data.get("exam_length") in ielts.TIMINGS else None
                 elif data.get("type") == "quit":
                     return
     except WebSocketDisconnect:
@@ -244,12 +254,14 @@ async def ws_endpoint(ws: WebSocket):
             threading.Thread(
                 target=exam_report.run_exam_analysis,
                 args=(log, agent_module.model, handler),
+                kwargs={"store": profile.record_exam},
                 daemon=True,
             ).start()
 
         sessions_db.update(session_id, name=f"IELTS mock test {time.strftime('%d %b %H:%M')}")
         session = ExamSession(
-            source, sink, handler, agent_module.model, session_id=session_id, on_complete=analyse
+            source, sink, handler, agent_module.model, session_id=session_id, on_complete=analyse,
+            length=exam_length,
         )
     else:
         session = Session(source, sink, handler, session_id=session_id, greet=True)
@@ -328,6 +340,10 @@ async def ws_endpoint(ws: WebSocket):
                         # session, so a later Start works again.
                         logger.info("client asked to quit; closing session")
                         break
+
+                    if isinstance(data, dict) and data.get("type") == "record_stop":
+                        in_q.put(STOP)  # the candidate finished their answer
+                        continue
 
                     if isinstance(data, dict) and data.get("type") == "settings":
                         apply_settings(data)  # changed in the UI mid-call

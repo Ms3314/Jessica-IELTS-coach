@@ -19,6 +19,7 @@ logger = logging.getLogger("speakIelts.exam")
 IDLE_TIMEOUT_S = 12.0     # silence after a question before moving on
 MAX_REPEATS = 2           # "could you repeat that?" is honoured this many times
 DEFAULT_PAUSE_S = 1.5
+MIN_NEW_QUESTION_S = 8.0  # don't start another question with less than this left in the part
 MAX_FAILED_QUESTIONS = 2  # give up on a section after this many model failures in a row
 
 
@@ -36,6 +37,8 @@ class ExamSession:
         on_complete: Optional[Callable[[ielts.ExamLog], None]] = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        length: Optional[str] = None,
+        manual: bool = True,
     ):
         self.source = source
         self.sink = sink
@@ -43,8 +46,12 @@ class ExamSession:
         self.llm = llm
         self.voice = voice
         self.session_id = session_id
-        self.steps = steps if steps is not None else ielts.build_steps()
+        self.timing = ielts.timing_for(length)       # full or short test
+        self.manual = manual                          # the candidate records by hand
+        self._phrases = self.timing.phrases()
+        self.steps = steps if steps is not None else ielts.build_steps(length)
         self.log = log or ielts.ExamLog(session_id)
+        self.log.length = ielts.timing_for(length).name
         self.on_complete = on_complete
         self.running = True
         self._sleep = sleep
@@ -53,6 +60,7 @@ class ExamSession:
         self._card: Optional[examiner.CueCard] = None
         self._history: list[tuple[str, str]] = []      # (question, answer) so far in the exam
         self._part2_answer = ""
+        self._section_end: Optional[float] = None   # clock time the current timed part ends
         # How long a pause ends a Part 1 / Part 3 answer (the user's setting).
         self.pause_s = DEFAULT_PAUSE_S
 
@@ -73,7 +81,9 @@ class ExamSession:
         self.events.on_exam({
             "event": "start",
             "exam_id": self.log.exam_id,
-            "schedule": ielts.schedule(),
+            "schedule": ielts.schedule(self.timing.name),
+            "length": self.timing.name,
+            "manual": self.manual,
         })
         try:
             for step in self.steps:
@@ -114,8 +124,10 @@ class ExamSession:
             self._run_section(step, lambda elapsed, first: examiner.part1_instruction(
                 elapsed, step.limit_s, self._history, first))
         elif k == ielts.P2_SETUP:
+            covered = [q for q, _a in self._history]
             self._history = []
-            self._card = examiner.generate_cue_card(self.llm)
+            self._card = examiner.generate_cue_card(
+                self.llm, avoid=ielts.recent_cue_titles(), covered=covered)
             self.log.cue_card = self._card.model_dump()
             self._say_line("part2_announce")
             # the card is read out exactly as it is shown on screen
@@ -124,8 +136,8 @@ class ExamSession:
         elif k == ielts.P2_PREP:
             self._say_line("part2_prep")
             self.events.on_state("idle")
-            self.events.on_exam({"event": "prep", "seconds": ielts.PART2_PREP_S})
-            self._wait(ielts.PART2_PREP_S)
+            self.events.on_exam({"event": "prep", "seconds": self.timing.part2_prep_s})
+            self._wait(self.timing.part2_prep_s)
         elif k == ielts.P2_TALK:
             self._part2_talk()
         elif k == ielts.P2_ROUND:
@@ -145,50 +157,68 @@ class ExamSession:
     def _run_section(self, step: ielts.Step, instruction_for):
         """Keep asking questions until the part's time is up.
 
-        A question is never started after the limit, but one already under way
-        is allowed to finish, as in the real test.
+        The part's clock is hard: an answer still being recorded when it runs out
+        is cut off there and the test moves on. No new question is started in the
+        last few seconds, since there would be no time to answer it.
         """
         begun = self._clock()
+        self._section_end = begun + step.limit_s
         self.events.on_exam({"event": "part", "part": step.part, "limit_s": step.limit_s})
         n, failures = 0, 0
-        while self.running and self._clock() - begun < step.limit_s:
-            n += 1
-            question = self._say_generated(instruction_for(self._clock() - begun, n == 1))
-            if not question:
-                failures += 1
-                if failures >= MAX_FAILED_QUESTIONS:
-                    logger.warning("part %s: giving up after %d empty questions", step.part, failures)
-                    return
-                continue
-            failures = 0
-            self._ask_turn(step.part, question)
+        try:
+            while self.running and self._section_end - self._clock() >= MIN_NEW_QUESTION_S:
+                n += 1
+                question = self._say_generated(instruction_for(self._clock() - begun, n == 1))
+                if not question:
+                    failures += 1
+                    if failures >= MAX_FAILED_QUESTIONS:
+                        logger.warning("part %s: giving up after %d empty questions", step.part, failures)
+                        return
+                    continue
+                failures = 0
+                self._ask_turn(step.part, question)
+        finally:
+            self._section_end = None
 
     # --- Part 2 long turn ----------------------------------------------------------------
     def _part2_talk(self):
         self._say_line("part2_start")
         turn = self.log.start_turn(2, self._card.title)
-        self._configure(
-            pause=ielts.PART2_PAUSE_S, max_record=ielts.PART2_RECORD_CAP_S,
-            idle=ielts.PART2_IDLE_S, pause_range=(2.0, 6.0),
-        )
-        self.events.on_exam({"event": "talk", "max_seconds": ielts.PART2_TALK_MAX_S})
+        t = self.timing
+
+        def talk_started():
+            self.events.on_exam({"event": "talk", "max_seconds": t.part2_talk_s})
+
+        if self.manual:
+            # the clock starts when the candidate actually starts speaking
+            listen = dict(max_s=t.part2_talk_s, on_start=talk_started)   # the clock ends the talk
+        else:
+            self._configure(
+                pause=ielts.PART2_PAUSE_S, max_record=t.record_cap_s,
+                idle=ielts.PART2_IDLE_S, pause_range=(2.0, 6.0),
+            )
+            talk_started()
+            listen = {}
         try:
-            if self._record_into(turn):
-                if turn.duration_s < ielts.PART2_ENOUGH_S and self.running:
+            if self._record_into(turn, **listen):
+                if turn.duration_s < t.enough_s and self.running:
                     # too short: invite more, once (the extra clip joins the same turn)
                     self._say_line("part2_more")
-                    self._record_into(turn)
-                cut_off = turn.duration_s >= ielts.PART2_TALK_MAX_S - 5
+                    left = max(5.0, t.part2_talk_s - turn.duration_s)   # the talk's time isn't reset
+                    self._record_into(turn, **({"max_s": left} if self.manual else {}))
+                cut_off = turn.duration_s >= t.part2_talk_s - 5
                 self._say_line("part2_stop" if cut_off else "thanks")
         finally:
-            self._configure_default()
+            if not self.manual:
+                self._configure_default()
         self._part2_answer = turn.answer
 
     # --- question / answer ---------------------------------------------------------------
     def _ask_turn(self, part: int, question: str):
         """Record the answer to `question` (already spoken) as a new turn."""
         turn = self.log.start_turn(part, question)
-        self._configure_default()
+        if not self.manual:
+            self._configure_default()
         repeats = 0
         while self.running:
             clip_text = self._listen_once()
@@ -205,9 +235,9 @@ class ExamSession:
         self._history.append((turn.question, turn.answer))
         self.log.save()
 
-    def _record_into(self, turn: ielts.Turn) -> bool:
+    def _record_into(self, turn: ielts.Turn, **listen) -> bool:
         """Listen once and add the clip to `turn`. True if something was recorded."""
-        got = self._listen_once()
+        got = self._listen_once(**listen)
         if got is None:
             return False
         clip, text = got
@@ -215,10 +245,12 @@ class ExamSession:
         self.log.save()
         return True
 
-    def _listen_once(self):
+    def _listen_once(self, max_s: Optional[float] = None, on_start=None):
         """Wait for one answer. Returns (clip, text), or None if nobody spoke."""
         if hasattr(self.source, "flush"):
             self.source.flush()
+        if self.manual:
+            return self._listen_manual(max_s or ielts.MANUAL_ANSWER_CAP_S, on_start)
         silent_windows = 0
         while self.running:
             self.events.on_state("listening")
@@ -241,6 +273,34 @@ class ExamSession:
                 return None
         return None
 
+    def _listen_manual(self, max_s: float, on_start=None):
+        """The candidate presses Record, talks, and presses Stop (or time runs out)."""
+        limit_s = None
+        if self._section_end is not None:
+            limit_s = self._section_end - self._clock()
+            if limit_s <= 0:          # the part ran out while the question was being asked
+                self.events.on_state("idle")
+                return None
+        self.events.on_exam({"event": "answer_window", "max_s": max_s, "wait_s": ielts.MANUAL_WAIT_S})
+        self.events.on_state("listening")
+        clip = self.source.listen_manual(
+            wait_s=ielts.MANUAL_WAIT_S, max_s=max_s, on_start=on_start, limit_s=limit_s
+        )
+        self.events.on_exam({"event": "answer_end"})
+        if clip is QUIT:
+            self.running = False
+            return None
+        if clip is None:
+            self.events.on_state("idle")
+            return None
+        self.events.on_state("transcribing")
+        text = asr.transcribe(clip)
+        if text:
+            self.events.on_user(text)
+            return clip, text
+        self.events.on_state("idle")
+        return None
+
     # --- speaking --------------------------------------------------------------------------
     def _announce(self, text: str):
         """Tell the UI what is being said (also gives the browser sentence numbers)."""
@@ -260,7 +320,7 @@ class ExamSession:
     def _say_line(self, key: str, **ctx) -> str:
         """Have the model write the line for `key` (or fall back), then speak it."""
         self.events.on_state("thinking")
-        return self._say(examiner.write_line(self.llm, key, **ctx))
+        return self._say(examiner.write_line(self.llm, key, **{**self._phrases, **ctx}))
 
     def _say_generated(self, instruction: str) -> str:
         """Have the model write the next question, speak it as it streams, and

@@ -64,6 +64,37 @@ def test_cue_card_falls_back_when_the_model_fails_or_is_empty():
     assert examiner.generate_cue_card(FakeLLM(card=bad), random.Random(0)) in examiner._FALLBACK_CARDS
 
 
+class _Spy:
+    """Records the prompt the model was given for the cue card."""
+    def __init__(self, card):
+        self.card, self.prompts = card, []
+
+    def with_structured_output(self, _schema):
+        spy = self
+
+        class Runner:
+            def invoke(self, prompt):
+                spy.prompts.append(prompt)
+                return spy.card
+        return Runner()
+
+
+def test_cue_card_prompt_lists_part_1_topics_and_recent_cards():
+    card = examiner.CueCard(title="Describe a book you enjoyed.", points=["a", "b", "c", "d"],
+                            explain="and explain why.", theme="books")
+    spy = _Spy(card)
+    examiner.generate_cue_card(spy, random.Random(1), avoid=["Describe a useful object."],
+                               covered=["Do you enjoy cooking?"])
+    prompt = spy.prompts[0]
+    assert "Do you enjoy cooking?" in prompt and "Describe a useful object." in prompt
+
+
+def test_fallback_card_skips_recent_titles():
+    avoid = [c.title for c in examiner._FALLBACK_CARDS[:-1]]
+    got = examiner.generate_cue_card(FakeLLM(fail=True), random.Random(0), avoid=avoid)
+    assert got is examiner._FALLBACK_CARDS[-1]
+
+
 def test_cue_card_is_read_out_naturally():
     card = examiner.CueCard(title="Describe a place.", points=["where it is,", "when you went"],
                             explain="and explain why you liked it.", theme="places")
@@ -104,6 +135,29 @@ def test_line_instruction_includes_context_and_the_must_haves():
     assert "vary the phrasing" in instr.lower()
     assert "Of course" not in instr, "no scripted wording is handed to the model"
     assert "Q1?" in examiner.line_instruction("repeat", question="Q1?")
+
+
+def test_part2_lines_use_the_times_of_the_chosen_length():
+    from app import ielts
+
+    short = ielts.timing_for("short").phrases()
+    for key in ("part2_announce", "part2_prep", "part2_start"):
+        text = examiner.fallback_line(key, **short)
+        assert examiner.line_ok(key, text, **short), key
+        assert "one minute to" not in text.replace("up to one minute", ""), "no full-test times in a short test"
+    assert "30 seconds" in examiner.fallback_line("part2_prep", **short)
+    assert "up to one minute" in examiner.fallback_line("part2_start", **short)
+    assert "30 seconds" in examiner.line_instruction("part2_announce", **short)
+    assert "up to one minute" in examiner.line_instruction("part2_announce", **short)
+
+
+def test_a_line_quoting_the_wrong_length_is_rejected_and_replaced():
+    from app import ielts
+
+    short = ielts.timing_for("short").phrases()
+    llm = FakeLLM(chunks=["You have one minute to prepare."])      # right for full, wrong for short
+    assert examiner.write_line(llm, "part2_prep", **short) == examiner.fallback_line("part2_prep", **short)
+    assert examiner.write_line(llm, "part2_prep") == "You have one minute to prepare."
 
 
 def test_the_greeting_is_told_the_time_of_day():

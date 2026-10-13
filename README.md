@@ -55,13 +55,18 @@ TODO.md                    # design log: every change and WHY it was made
 
 ## IELTS mock test (backend)
 
-Click **New IELTS test** in the sidebar. Jessica runs the real
+Click **New IELTS test** in the sidebar and choose a **Short (about 6 min)** or **Full
+(about 14 min)** test. Jessica runs the real
 structure — intro, Part 1, Part 2 (cue card, 1 min prep, up to 2 min
 talk), Part 3 — without commenting on your answers, with a countdown for each
 part. Every answer is saved as audio under `data/exams/<session>/<exam>/`; when
 the test ends (or you quit after 3+ answers) the recordings are re-transcribed
-with word timestamps and scored into an estimated report. Past tests and
-conversations are listed in the History sidebar.
+with word timestamps and scored into an estimated report. You record each answer yourself (Record, then Stop, or the Space key); a
+part's countdown is a hard limit, so a recording still running when it reaches
+zero is cut off and the test moves on. When the test ends it goes straight to
+the analysis, and the scores are saved to **Your progress** (`data/profile.db`),
+which charts your bands over time. Past tests and conversations are listed in the
+History sidebar.
 
 ```
 app/ielts.py          # the exam's fixed structure + the saved record

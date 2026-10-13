@@ -259,8 +259,13 @@ def _delete_exam_recordings(session_id: str) -> None:
     """Mock-test audio is personal data: it goes away with its session."""
     import shutil
 
+    from app import profile
     from app.ielts import EXAMS_DIR
 
+    try:
+        profile.delete_session(session_id)
+    except Exception:
+        pass
     target = (EXAMS_DIR / session_id).resolve()
     if target.parent == EXAMS_DIR.resolve() and target.is_dir():
         shutil.rmtree(target, ignore_errors=True)

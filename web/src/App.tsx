@@ -3,6 +3,7 @@ import CallView from "@/components/views/CallView";
 import HistorySidebar from "@/components/HistorySidebar";
 import ReportView from "@/components/exam/ReportView";
 import SettingsDialog from "@/components/SettingsDialog";
+import ProfileView from "@/components/views/ProfileView";
 import StartView from "@/components/views/StartView";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +19,7 @@ import {
   type ChatMessage,
   type ExamListItem,
   type Mode,
+  type ScoreRow,
   type ServerSettings,
   type SessionMeta,
 } from "@/lib/api";
@@ -54,8 +56,15 @@ export default function App() {
   const [server, setServer] = useState<ServerSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
+  // the main area shows either the current conversation/test, or your progress
+  const [view, setView] = useState<"work" | "profile">("work");
 
-  const voice = useVoice({ voiceInterrupt: settings.voiceInterrupt, pauseS: settings.pauseS, mode });
+  const voice = useVoice({
+    voiceInterrupt: settings.voiceInterrupt,
+    pauseS: settings.pauseS,
+    mode,
+    examLength: settings.examLength,
+  });
   const { connected, started, sessionId, exam, resetExam, newSession, switchSession, start, quit } = voice;
 
   const refreshSessions = useCallback(async () => setSessions(await fetchSessions()), []);
@@ -91,6 +100,7 @@ export default function App() {
   // --- sidebar actions ---
   const openNew = useCallback(
     (next: Mode) => {
+      setView("work");
       setMode(next);
       resetExam();
       newSession();
@@ -99,6 +109,7 @@ export default function App() {
   );
   const openSession = useCallback(
     (s: SessionMeta) => {
+      setView("work");
       setMode(sessionMode(s));
       resetExam();
       switchSession(s.id);
@@ -123,14 +134,26 @@ export default function App() {
   );
 
   // --- what the workspace shows ---
-  const title = started
-    ? mode === "ielts"
-      ? "IELTS mock test"
-      : "Conversation"
-    : activeSession?.name ?? (mode === "ielts" ? "New IELTS test" : "New conversation");
+  const showProfile = view === "profile" && !started;
+  const openTestFromProfile = useCallback(
+    (row: ScoreRow) => {
+      const s = sessions.find((x) => x.id === row.session_id);
+      if (s) openSession(s);
+    },
+    [sessions, openSession]
+  );
+  const title = showProfile
+    ? "Your progress"
+    : started
+      ? mode === "ielts"
+        ? "IELTS mock test"
+        : "Conversation"
+      : activeSession?.name ?? (mode === "ielts" ? "New IELTS test" : "New conversation");
 
   let content;
-  if (started) {
+  if (showProfile) {
+    content = <ProfileView refreshKey={historyKey} onOpenTest={openTestFromProfile} onNewTest={() => openNew("ielts")} />;
+  } else if (started) {
     content = (
       <CallView
         mode={mode}
@@ -143,6 +166,9 @@ export default function App() {
         transcript={voice.transcript}
         exam={exam}
         source={voice.engine.current?.visualSource ?? null}
+        recording={voice.recording}
+        onRecord={voice.startRecording}
+        onStopRecording={voice.stopRecording}
         onStop={voice.stopReply}
         onEnd={quit}
         onToggleMic={voice.toggleMicMute}
@@ -159,6 +185,7 @@ export default function App() {
           error={exam.reportError}
           onAgain={() => openNew("ielts")}
           onChat={() => openNew("chat")}
+          onOpenProfile={() => setView("profile")}
         />
       </div>
     );
@@ -173,13 +200,22 @@ export default function App() {
   } else if (mode === "chat" && history.messages.length > 0) {
     content = <ChatReview session={activeSession} messages={history.messages} onContinue={start} />;
   } else if (mode === "ielts" && history.exams.length > 0) {
-    content = <TestReview sessionId={sessionId} onAgain={() => openNew("ielts")} onChat={() => openNew("chat")} />;
+    content = (
+      <TestReview
+        sessionId={sessionId}
+        onAgain={() => openNew("ielts")}
+        onChat={() => openNew("chat")}
+        onOpenProfile={() => setView("profile")}
+      />
+    );
   } else {
     content = (
       <StartView
         mode={mode}
         connected={connected}
         needsKey={needsKey}
+        examLength={settings.examLength}
+        onExamLength={(examLength) => updateSettings({ examLength })}
         onStart={start}
         onOpenSettings={() => setSettingsOpen(true)}
       />
@@ -199,6 +235,8 @@ export default function App() {
           onRename={rename}
           onDelete={remove}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenProfile={() => setView("profile")}
+          profileActive={showProfile}
         />
 
         <main className="flex h-full min-h-0 min-w-0 flex-col">

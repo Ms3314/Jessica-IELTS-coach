@@ -11,13 +11,18 @@ export interface Settings {
    * Shorter = faster replies; longer = more room to pause and think.
    */
   pauseS: number;
+  /** Which mock test to take: the full one (about 14 min) or a short one (about 6 min). */
+  examLength: ExamLength;
 }
+
+export type ExamLength = "full" | "short";
 
 export const PAUSE_RANGE = { min: 0.8, max: 3.0, step: 0.1 } as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   voiceInterrupt: false,
   pauseS: 1.2,
+  examLength: "full",
 };
 
 const KEY = "speakielts.settings";
@@ -32,6 +37,7 @@ function load(): Settings {
       saved.pauseS = Number.isFinite(p)
         ? Math.min(PAUSE_RANGE.max, Math.max(PAUSE_RANGE.min, p))
         : DEFAULT_SETTINGS.pauseS;
+      if (saved.examLength !== "full" && saved.examLength !== "short") saved.examLength = DEFAULT_SETTINGS.examLength;
       return saved;
     }
   } catch {

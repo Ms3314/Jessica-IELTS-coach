@@ -35,6 +35,8 @@ export interface Report {
   examiner_note?: string;
   caveats?: string[];
   finished?: boolean;
+  /** the scores were saved to the user's profile (progress over time) */
+  profile_saved?: boolean;
 }
 
 export type Phase =
@@ -57,8 +59,17 @@ export interface Timer {
   startedAt: number;
 }
 
+/** The server is waiting for the candidate to record an answer. */
+export interface AnswerWindow {
+  maxS: number; // the recording ends by itself at this length
+  waitS: number; // and the question is skipped if they never start within this long
+  openedAt: number; // client clock (ms)
+}
+
 export interface ExamState {
   active: boolean; // a mock-test call is running
+  length: string | null; // "full" | "short"
+  answerWindow: AnswerWindow | null;
   examId: string | null;
   phase: Phase;
   part: Part;
@@ -74,6 +85,8 @@ export interface ExamState {
 
 export const INITIAL_EXAM: ExamState = {
   active: false,
+  length: null,
+  answerWindow: null,
   examId: null,
   phase: "intro",
   part: 0,
@@ -96,6 +109,9 @@ export interface ExamEvent {
   limit_s?: number;
   seconds?: number;
   max_seconds?: number;
+  max_s?: number;
+  wait_s?: number;
+  length?: string;
   card?: CueCard;
   finished?: boolean;
   report?: Report;
@@ -129,7 +145,7 @@ export function examReducer(state: ExamState, action: ExamAction): ExamState {
     case "ended":
       // hung up before the server could say so: the test is over, unfinished
       if (!state.active || state.complete) return state;
-      return { ...state, active: false, complete: true, timer: null };
+      return { ...state, active: false, complete: true, timer: null, answerWindow: null };
 
     case "report":
       return { ...state, report: action.report, analysing: false, reportError: null };
@@ -145,6 +161,7 @@ export function examReducer(state: ExamState, action: ExamAction): ExamState {
             ...INITIAL_EXAM,
             active: true,
             examId: e.exam_id ?? null,
+            length: e.length ?? null,
             startedAt: action.now,
           };
         case "step": {
@@ -156,8 +173,16 @@ export function examReducer(state: ExamState, action: ExamAction): ExamState {
             phase,
             part: ((e.part ?? 0) as Part) || state.part,
             timer: keepsTimer ? state.timer : null,
+            answerWindow: null,
           };
         }
+        case "answer_window":
+          return {
+            ...state,
+            answerWindow: { maxS: e.max_s ?? 0, waitS: e.wait_s ?? 0, openedAt: action.now },
+          };
+        case "answer_end":
+          return { ...state, answerWindow: null };
         case "part":
           return {
             ...state,
@@ -182,6 +207,7 @@ export function examReducer(state: ExamState, action: ExamAction): ExamState {
             complete: true,
             finished: Boolean(e.finished),
             timer: null,
+            answerWindow: null,
             phase: "end",
             analysing: state.report === null,
           };

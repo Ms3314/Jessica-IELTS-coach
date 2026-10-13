@@ -22,6 +22,9 @@ interface Props {
   transcript: Line[];
   exam: ExamState;
   source: FrameEmitter<VisualFrame> | null;
+  recording: boolean;
+  onRecord: () => void;
+  onStopRecording: () => void;
   onStop: () => void;
   onEnd: () => void;
   onToggleMic: () => void;
@@ -65,6 +68,10 @@ export default function CallView(p: Props) {
         voiceActive={p.voiceActive}
         micMuted={p.micMuted}
         source={p.source}
+        canRecord={exam && p.exam.answerWindow !== null}
+        recording={p.recording}
+        onRecord={p.onRecord}
+        onStopRecording={p.onStopRecording}
         onStop={p.onStop}
         onEnd={p.onEnd}
         onToggleMic={p.onToggleMic}

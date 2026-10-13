@@ -138,3 +138,25 @@ test("stepper status", () => {
   assert.equal(stepStatus(3, mid), "upcoming");
   assert.equal(stepStatus(3, { part: 3, complete: true }), "done");
 });
+
+test("the answer window opens when the server waits for a recording and closes when it ends", () => {
+  let s = run([ev({ event: "start", exam_id: "e1", length: "short" }), ev({ event: "answer_window", max_s: 90, wait_s: 45 }, 5000)]);
+  assert.deepEqual(s.answerWindow, { maxS: 90, waitS: 45, openedAt: 5000 });
+  assert.equal(s.length, "short");
+  s = run([ev({ event: "answer_end" })], s);
+  assert.equal(s.answerWindow, null);
+});
+
+test("moving to the next step, ending the call or finishing the test closes the window", () => {
+  const open = run([ev({ event: "start" }), ev({ event: "answer_window", max_s: 90, wait_s: 45 })]);
+  assert.equal(examReducer(open, ev({ event: "step", kind: "p2_prep", part: 2 })).answerWindow, null);
+  assert.equal(examReducer(open, { type: "ended" }).answerWindow, null);
+  assert.equal(examReducer(open, ev({ event: "complete", finished: true })).answerWindow, null);
+});
+
+test("a new test does not inherit the previous test's length or window", () => {
+  const old = run([ev({ event: "start", length: "short" }), ev({ event: "answer_window", max_s: 90, wait_s: 45 })]);
+  const fresh = run([ev({ event: "start", exam_id: "n" })], old);
+  assert.equal(fresh.length, null);
+  assert.equal(fresh.answerWindow, null);
+});

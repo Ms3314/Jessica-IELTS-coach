@@ -24,6 +24,35 @@ export interface ExamListItem {
   has_report: boolean;
 }
 
+export interface ScoreRow {
+  session_id: string;
+  exam_id: string;
+  taken_at: number; // epoch seconds
+  length: "full" | "short";
+  finished: boolean;
+  overall: number;
+  fluency: number | null;
+  lexical: number | null;
+  grammar: number | null;
+  pronunciation: number | null;
+  reliability: string | null;
+}
+
+export interface ProfileSummary {
+  tests: number;
+  latest: number | null;
+  best: number | null;
+  average: number | null;
+  change: number | null; // latest minus the test before it
+  criteria_average: Record<"fluency" | "lexical" | "grammar" | "pronunciation", number | null>;
+  trend: number[]; // overall bands, oldest to newest
+}
+
+export interface ProfileData {
+  summary: ProfileSummary;
+  history: ScoreRow[];
+}
+
 export interface KeyStatus {
   set: boolean;
   source: "settings" | "environment" | null;
@@ -53,6 +82,7 @@ export const fetchMessages = (sessionId: string) =>
 export const fetchExams = (sessionId: string) => getJson<ExamListItem[]>(`/exams/${id(sessionId)}`, []);
 export const fetchExam = (sessionId: string, examId: string) =>
   getJson<any | null>(`/exams/${id(sessionId)}/${id(examId)}`, null);
+export const fetchProfile = () => getJson<ProfileData | null>("/profile", null);
 export const fetchServerSettings = () => getJson<ServerSettings | null>("/settings", null);
 
 export async function saveKeys(body: {

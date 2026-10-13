@@ -41,6 +41,41 @@ def test_schedule_describes_every_part_for_the_ui():
     assert sched[2]["limit_s"] == ielts.PART3_LIMIT_S
 
 
+def test_two_lengths_the_full_test_and_a_short_one():
+    full, short = ielts.timing_for("full"), ielts.timing_for("short")
+    assert 13 <= full.total_s / 60 <= 15, "the full test is about 14 minutes"
+    assert 5.5 <= short.total_s / 60 <= 7, "the short test is about 6 minutes"
+    for field in ("part1_s", "part2_prep_s", "part2_talk_s", "part3_s"):
+        assert getattr(short, field) < getattr(full, field), field
+
+
+def test_an_unknown_length_means_the_full_test():
+    assert ielts.timing_for(None) is ielts.TIMINGS["full"]
+    assert ielts.timing_for("whatever") is ielts.TIMINGS["full"]
+
+
+def test_the_short_test_keeps_all_three_parts_with_tighter_limits():
+    steps = ielts.build_steps("short")
+    assert [s.kind for s in steps] == [s.kind for s in ielts.build_steps("full")]
+    assert {s.kind: s.limit_s for s in steps if s.limit_s} == {
+        ielts.P1_SECTION: 120.0, ielts.P3_SECTION: 120.0}
+    assert ielts.schedule("short")[1] == {"part": 2, "prep_s": 30.0, "talk_s": 60.0}
+
+
+def test_part2_wording_matches_the_length():
+    assert ielts.timing_for("full").phrases() == {
+        "prep_phrase": "one minute", "prep_word": "minute",
+        "talk_phrase": "one to two minutes", "talk_word": "minute"}
+    short = ielts.timing_for("short").phrases()
+    assert short["prep_phrase"] == "30 seconds" and short["talk_phrase"] == "up to one minute"
+
+
+def test_derived_part2_limits_follow_the_talk_time():
+    t = ielts.timing_for("short")
+    assert t.enough_s == 30.0 and t.record_cap_s == 65.0
+    assert ielts.timing_for("full").record_cap_s == ielts.PART2_RECORD_CAP_S
+
+
 def _clip(seconds):
     return (np.ones(int(ielts.SAMPLE_RATE * seconds), dtype=np.int16) * 500)
 
@@ -81,6 +116,27 @@ def test_save_and_load_round_trip():
         assert loaded.finished and loaded.cue_card == {"title": "Describe a place"}
         assert loaded.turns[0].question == "Where do you live?"
         assert loaded.turns[0].audio == ["turn01.wav"]
+
+
+def test_the_chosen_length_is_saved_with_the_test():
+    with tempfile.TemporaryDirectory() as tmp:
+        log = ielts.ExamLog("s1", "e1", root=Path(tmp))
+        assert log.length == "full"
+        log.length = "short"
+        log.save()
+        assert ielts.ExamLog.load("s1", "e1", root=Path(tmp)).length == "short"
+
+
+def test_a_test_saved_before_lengths_existed_loads_as_full():
+    import json
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log = ielts.ExamLog("s1", "e1", root=Path(tmp))
+        path = log.save()
+        data = json.loads(path.read_text())
+        del data["length"]
+        path.write_text(json.dumps(data))
+        assert ielts.ExamLog.load("s1", "e1", root=Path(tmp)).length == "full"
 
 
 def test_transcript_marks_unanswered_questions():

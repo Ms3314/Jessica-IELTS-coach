@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, Check, Loader2, Quote } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, Check, Loader2, Quote } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ interface Props {
   error: string | null;
   onAgain: () => void;
   onChat: () => void;
+  /** open the progress screen (shown when the scores were saved to it) */
+  onOpenProfile?: () => void;
 }
 
 interface SavedTurn {
@@ -81,7 +83,7 @@ function CriterionCard({ title, c }: { title: string; c: Criterion }) {
 }
 
 /** What you see after the test: the estimated bands, feedback, and your own answers to replay. */
-export default function ReportView({ sessionId, examId, report, error: reportError, onAgain, onChat }: Props) {
+export default function ReportView({ sessionId, examId, report, error: reportError, onAgain, onChat, onOpenProfile }: Props) {
   const [turns, setTurns] = useState<SavedTurn[]>([]);
 
   // the saved answers (for replay) come from the server once the report exists
@@ -103,6 +105,11 @@ export default function ReportView({ sessionId, examId, report, error: reportErr
       <Button variant="outline" onClick={onChat}>
         New conversation
       </Button>
+      {report?.profile_saved && onOpenProfile && (
+        <Button variant="ghost" onClick={onOpenProfile}>
+          <BarChart3 className="size-4" /> View your progress
+        </Button>
+      )}
     </div>
   );
 
@@ -173,6 +180,11 @@ export default function ReportView({ sessionId, examId, report, error: reportErr
               </Badge>
             )}
             {report.examiner_note && <p className="leading-relaxed">{report.examiner_note}</p>}
+            {report.profile_saved && (
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Check className="size-4 text-emerald-700" /> Saved to your progress
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
