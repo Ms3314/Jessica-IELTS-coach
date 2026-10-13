@@ -23,7 +23,12 @@ function loadActiveSessionId(): string {
   return fresh;
 }
 
-export function useVoice() {
+export interface VoiceOptions {
+  /** Allow cutting Jessica off by talking over her (the Stop button always works). */
+  voiceInterrupt: boolean;
+}
+
+export function useVoice({ voiceInterrupt }: VoiceOptions) {
   const engineRef = useRef<AudioEngine | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Sent as ?session=... so reconnects resume the same conversation memory.
@@ -58,6 +63,8 @@ export function useVoice() {
   const bargeTicksRef = useRef(0);
   const micMutedRef = useRef(false);
   micMutedRef.current = micMuted;
+  const voiceInterruptRef = useRef(voiceInterrupt);
+  voiceInterruptRef.current = voiceInterrupt;
 
   const clearPause = useCallback(() => {
     if (pauseTimerRef.current) {
@@ -82,7 +89,12 @@ export function useVoice() {
     );
   }, []);
 
-  const bargeIn = useCallback(() => {
+  // by: "voice" = the user talked over her, "button" = pressed Stop. The server
+  // stitches a voice interruption onto the previous message but treats a Stop
+  // as the start of a fresh one.
+  const bargeIn = useCallback((by: "voice" | "button") => {
+    // What the user actually heard, read BEFORE playback is torn down.
+    const heardIdx = engineRef.current?.lastStartedIdx ?? -1;
     bargeTicksRef.current = 0;
     setTtsActive(false); // teal ends immediately
     // Drop any reply audio still in flight; cleared shortly after in case the
@@ -99,7 +111,7 @@ export function useVoice() {
     syncCapturing();
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "barge_in" }));
+      ws.send(JSON.stringify({ type: "barge_in", by, heard_idx: heardIdx }));
     }
     setState("listening");
   }, [syncCapturing]);
@@ -129,6 +141,8 @@ export function useVoice() {
       ws.onopen = () => {
         // A fresh socket means any "ignore stale audio" window is over.
         ignoreAudioRef.current = false;
+        // The server numbers sentences per socket, so forget the old count.
+        if (engineRef.current) engineRef.current.lastStartedIdx = -1;
         setConnected(true);
       };
       ws.onclose = () => {
@@ -155,6 +169,12 @@ export function useVoice() {
             if (s !== "listening") clearPause();
             setState(s);
             syncCapturing();
+          } else if (msg.type === "agent") {
+            // Sentence boundary in the audio stream: lets us tell the server
+            // which sentences were really played if the user interrupts.
+            if (typeof msg.idx === "number" && !ignoreAudioRef.current) {
+              engine.markSentence(msg.idx);
+            }
           } else if (msg.type === "pause") {
             showPause();
           } else if (msg.type === "user") {
@@ -206,6 +226,7 @@ export function useVoice() {
 
       const st = stateRef.current;
       const bargeable =
+        voiceInterruptRef.current &&
         (st === "transcribing" || st === "thinking" || st === "speaking" || speakingNow) &&
         !ignoreAudioRef.current;
       if (bargeable) {
@@ -213,13 +234,16 @@ export function useVoice() {
         // (echo-cancelled) playback bleed before counting it as an interruption.
         const threshold = speakingNow ? Math.max(0.1, engine.mouth * 0.5) : 0.1;
         bargeTicksRef.current = mic > threshold ? bargeTicksRef.current + 1 : 0;
-        if (bargeTicksRef.current >= 3) bargeIn();
+        if (bargeTicksRef.current >= 3) bargeIn("voice");
       } else {
         bargeTicksRef.current = 0;
       }
     }, 120);
     return () => clearInterval(id);
   }, [bargeIn]);
+
+  /** Stop button: cut Jessica off on purpose (her answer was wrong/irrelevant). */
+  const stopReply = useCallback(() => bargeIn("button"), [bargeIn]);
 
   const start = useCallback(async () => {
     setError(null);
@@ -309,6 +333,7 @@ export function useVoice() {
     sessionId,
     start,
     quit,
+    stopReply,
     newSession,
     switchSession,
     toggleMicMute,

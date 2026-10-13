@@ -1,4 +1,5 @@
-import { Mic, MicOff, PhoneOff } from "lucide-react";
+import { useEffect } from "react";
+import { Mic, MicOff, PhoneOff, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { EngineState } from "@/lib/useVoice";
 
@@ -12,6 +13,7 @@ interface Props {
   color: string;
   onStart: () => void;
   onQuit: () => void;
+  onStop: () => void;
   onToggleMicMute: () => void;
 }
 
@@ -34,8 +36,23 @@ export default function Controls({
   color,
   onStart,
   onQuit,
+  onStop,
   onToggleMicMute,
 }: Props) {
+  // Stop is offered while Jessica is working on / delivering a reply.
+  const canStop =
+    started &&
+    (state === "transcribing" || state === "thinking" || state === "speaking");
+
+  useEffect(() => {
+    if (!canStop) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onStop();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canStop, onStop]);
+
   const quietTurn = started && state === "listening" && !voiceActive;
   const displayState: EngineState =
     !connected || !started ? "idle" : paused ? "listening" : quietTurn ? "idle" : state;
@@ -62,6 +79,18 @@ export default function Controls({
       </span>
 
       <div className="control-cluster">
+        {canStop && (
+          <Button
+            variant="outline"
+            onClick={onStop}
+            aria-label="Stop Jessica (Esc)"
+            title="Stop Jessica (Esc)"
+          >
+            <Square className="size-4" />
+            Stop
+          </Button>
+        )}
+
         {started && (
           <Button
             variant={micMuted ? "destructive" : "outline"}

@@ -30,8 +30,13 @@ export class AudioEngine {
   private silentGain: GainNode | null = null;
   private levelGen = 0; // invalidates old rAF level loops after stop()/init()
 
-  private ttsQueue: Float32Array[] = [];
+  // Audio chunks, interleaved with {idx} markers the server sends before each
+  // sentence's audio. Reaching a marker means that sentence has started playing.
+  private ttsQueue: (Float32Array | { idx: number })[] = [];
   ttsPlaying = false;
+  // Index of the last sentence whose audio started playing (-1 = none yet).
+  // Reported on interrupt so the server knows what the user actually heard.
+  lastStartedIdx = -1;
   private currentSource: AudioBufferSourceNode | null = null;
 
   // Live levels, updated every animation frame, read by the avatar.
@@ -117,6 +122,11 @@ export class AudioEngine {
     if (!this.ttsPlaying) this.playNext();
   }
 
+  /** Mark where sentence `idx` begins in the audio stream (sent before its audio). */
+  markSentence(idx: number) {
+    this.ttsQueue.push({ idx });
+  }
+
   /** Stop the reply immediately (barge-in) and drop anything queued. */
   stopPlayback() {
     this.ttsQueue = [];
@@ -131,7 +141,16 @@ export class AudioEngine {
 
   private playNext() {
     if (!this.ctx || !this.analyser) return;
-    const f32 = this.ttsQueue.shift();
+    let f32: Float32Array | undefined;
+    while (this.ttsQueue.length > 0) {
+      const item = this.ttsQueue.shift()!;
+      if ("idx" in item) {
+        this.lastStartedIdx = item.idx; // this sentence's audio starts now
+        continue;
+      }
+      f32 = item;
+      break;
+    }
     if (!f32 || f32.length === 0) {
       this.ttsPlaying = false;
       return;
