@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { PanelLeft } from "lucide-react";
+import SettingsDialog from "@/components/SettingsDialog";
 import { BarVisualizer } from "@/components/ui/bar-visualizer";
 import Controls from "@/components/Controls";
 import SessionSidebar, { type Session } from "@/components/SessionSidebar";
 import { Button } from "@/components/ui/button";
+import { useSettings } from "@/lib/settings";
 import { useVoice } from "@/lib/useVoice";
 
 export default function App() {
+  const { settings, update: updateSettings } = useSettings();
   const {
     connected,
     started,
@@ -21,14 +24,14 @@ export default function App() {
     sessionId,
     start,
     quit,
+    stopReply,
     newSession,
     switchSession,
     toggleMicMute,
-  } = useVoice();
+  } = useVoice({ voiceInterrupt: settings.voiceInterrupt });
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [summarizing, setSummarizing] = useState(false);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -43,6 +46,14 @@ export default function App() {
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions, sessionId]);
+
+  // The server auto-summarises a session when its socket closes. After a
+  // reconnect, give it a moment and pull the fresh summary in.
+  useEffect(() => {
+    if (!connected) return;
+    const t = setTimeout(refreshSessions, 2500);
+    return () => clearTimeout(t);
+  }, [connected, refreshSessions]);
 
   const activeSession = sessions.find((s) => s.id === sessionId);
   const sessionColor = activeSession?.color || "#3b82f6";
@@ -82,16 +93,7 @@ export default function App() {
     refreshSessions();
   }, [newSession, refreshSessions]);
 
-  const handleSummarize = useCallback(async () => {
-    if (!sessionId) return;
-    setSummarizing(true);
-    try {
-      await fetch(`/sessions/${sessionId}/summarize`, { method: "POST" });
-      await refreshSessions();
-    } finally {
-      setSummarizing(false);
-    }
-  }, [sessionId, refreshSessions]);
+
 
   // While reply audio is still playing, keep the "speaking" look even if the
   // server already moved on to "idle"/"listening" (synthesis ends before
@@ -123,28 +125,18 @@ export default function App() {
           <div className="topbar-title">
             <h1>Jessica</h1>
           </div>
-          <div className="session-actions" />
+          <div className="session-actions">
+            <SettingsDialog settings={settings} onChange={updateSettings} />
+          </div>
         </header>
 
         <section className="summary-panel">
           <div className="summary-panel-head">
             <h2>Summary</h2>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={summarizing}
-              onClick={handleSummarize}
-            >
-              {summarizing
-                ? "Generating…"
-                : activeSession?.summary
-                  ? "Refresh"
-                  : "Generate"}
-            </Button>
           </div>
           <p className="summary-panel-text">
             {activeSession?.summary ||
-              "No summary yet — generate one to see what you've talked about."}
+              "Your conversation summary will appear here after the call ends."}
           </p>
         </section>
 
@@ -180,6 +172,7 @@ export default function App() {
           color={sessionColor}
           onStart={start}
           onQuit={quit}
+          onStop={stopReply}
           onToggleMicMute={toggleMicMute}
         />
       </div>

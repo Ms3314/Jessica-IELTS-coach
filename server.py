@@ -202,8 +202,14 @@ async def ws_endpoint(ws: WebSocket):
                     if isinstance(data, dict) and data.get("type") == "barge_in":
                         # The user talked over the reply: cancel TTS and drop
                         # any reply audio still queued for the socket.
-                        logger.info("client barged in; cancelling the reply")
-                        session.interrupt()
+                        by = "button" if data.get("by") == "button" else "voice"
+                        heard = data.get("heard_idx")
+                        heard = heard if isinstance(heard, int) else None
+                        logger.info(
+                            "client interrupted (%s, heard up to sentence %s); "
+                            "cancelling the reply", by, heard,
+                        )
+                        session.interrupt(by, heard)
                         kept = []
                         while True:
                             try:
@@ -226,6 +232,12 @@ async def ws_endpoint(ws: WebSocket):
             await ws.close()
         except Exception:
             pass
+        # The call ended: summarise the conversation so the next visit can pick
+        # up from it. Blocking LLM work goes to a worker thread.
+        try:
+            await loop.run_in_executor(None, sessions_db.auto_summarize, session_id)
+        except Exception:
+            logger.warning("auto-summary failed for %s", session_id, exc_info=True)
 
 
 # Serve the built React app LAST so it doesn't shadow /ws or /healthz.

@@ -254,6 +254,21 @@ def delete(session_id: str) -> None:
         pass
 
 
+def auto_summarize(session_id: str) -> Optional[str]:
+    """Generate and cache a summary on call end, if anything was said.
+
+    Called when a WebSocket closes. Empty threads (no user messages yet) are
+    left alone so a new session isn't stuck with a placeholder summary.
+    """
+    state = agent.get_state({"configurable": {"thread_id": session_id}})
+    messages = state.values.get("messages", []) if state else []
+    if not messages:
+        return None
+    summary = summarize(session_id)
+    set_summary(session_id, summary)
+    return summary
+
+
 def summarize(session_id: str) -> str:
     """Ask the model to summarize the conversation thread."""
     state = agent.get_state({"configurable": {"thread_id": session_id}})
