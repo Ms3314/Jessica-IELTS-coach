@@ -12,6 +12,7 @@ import { ChatReview, TestReview } from "@/components/views/ReviewView";
 import {
   deleteSession,
   fetchExams,
+  analyseExam,
   fetchMessages,
   fetchServerSettings,
   fetchSessions,
@@ -65,7 +66,7 @@ export default function App() {
     mode,
     examLength: settings.examLength,
   });
-  const { connected, started, sessionId, exam, resetExam, newSession, switchSession, start, quit } = voice;
+  const { connected, started, sessionId, exam, resetExam, retryReport, newSession, switchSession, start, quit } = voice;
 
   const refreshSessions = useCallback(async () => setSessions(await fetchSessions()), []);
   const refreshServer = useCallback(async () => setServer(await fetchServerSettings()), []);
@@ -186,6 +187,7 @@ export default function App() {
           onAgain={() => openNew("ielts")}
           onChat={() => openNew("chat")}
           onOpenProfile={() => setView("profile")}
+          onRetry={() => exam.examId && analyseExam(sessionId, exam.examId).then(retryReport)}
         />
       </div>
     );

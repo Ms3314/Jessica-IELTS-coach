@@ -247,6 +247,33 @@ def test_saved_exams_can_be_listed_and_loaded():
         assert er.list_exams("nobody", root=Path(tmp)) == []
 
 
+def test_a_failed_analysis_is_remembered_so_a_later_visit_can_say_so():
+    with tempfile.TemporaryDirectory() as tmp:
+        log = _make_log(tmp)
+        r = er.run_exam_analysis(log, FakeLLM(fail=True), None, transcribe=_fake_transcribe, prosody=_fake_prosody)
+        assert "error" in r
+        got = er.load_exam("s1", "e1", root=Path(tmp))
+        assert got["report"] is None and got["analysis_error"] and got["analysing"] is False
+        # a later successful run clears the failure
+        er.run_exam_analysis(log, FakeLLM(_llm_report()), None, transcribe=_fake_transcribe, prosody=_fake_prosody)
+        assert er.load_exam("s1", "e1", root=Path(tmp))["analysis_error"] is None
+
+
+def test_a_running_analysis_is_visible_and_never_started_twice():
+    seen = {}
+
+    def slow_transcribe(*a, **k):
+        seen["during"] = er.is_analysing("s1", "e1")
+        seen["twin"] = er.run_exam_analysis(log, FakeLLM(_llm_report()), None)
+        return _fake_transcribe(*a, **k)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log = _make_log(tmp)
+        er.run_exam_analysis(log, FakeLLM(_llm_report()), None, transcribe=slow_transcribe, prosody=_fake_prosody)
+        assert seen["during"] is True and seen["twin"]["error"] == "already analysing"
+        assert er.is_analysing("s1", "e1") is False
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -407,6 +407,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode, examLength }: VoiceOpti
     if (!complete || !examId || examReport || reportError) return;
     let stopped = false;
     const deadline = Date.now() + 10 * 60 * 1000;
+    let idlePolls = 0;
     const poll = async () => {
       try {
         const res = await fetch(`/exams/${encodeURIComponent(sessionRef.current)}/${encodeURIComponent(examId)}`);
@@ -418,6 +419,16 @@ export function useVoice({ voiceInterrupt, pauseS, mode, examLength }: VoiceOpti
                 ? { type: "reportError", message: data.report.error }
                 : { type: "report", report: data.report }
             );
+            return;
+          }
+          if (!stopped && data.analysis_error) {
+            dispatchExam({ type: "reportError", message: data.analysis_error });
+            return;
+          }
+          // nothing is running and nothing arrived: the server restarted mid-analysis
+          idlePolls = data.analysing ? 0 : idlePolls + 1;
+          if (!stopped && idlePolls >= 4) {
+            dispatchExam({ type: "reportError", message: "The analysis didn't finish (the server may have restarted)." });
             return;
           }
         }
@@ -435,6 +446,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode, examLength }: VoiceOpti
   }, [complete, examId, examReport, reportError]);
 
   const resetExam = useCallback(() => dispatchExam({ type: "reset" }), []);
+  const retryReport = useCallback(() => dispatchExam({ type: "retryReport" }), []);
 
   // When the test is over, hang up by itself: the screen goes straight to the
   // analysis instead of waiting for the candidate to press End.
@@ -486,6 +498,7 @@ export function useVoice({ voiceInterrupt, pauseS, mode, examLength }: VoiceOpti
     startRecording,
     stopRecording,
     resetExam,
+    retryReport,
     start,
     quit,
     stopReply,

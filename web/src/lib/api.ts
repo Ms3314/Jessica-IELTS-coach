@@ -82,6 +82,15 @@ export const fetchMessages = (sessionId: string) =>
 export const fetchExams = (sessionId: string) => getJson<ExamListItem[]>(`/exams/${id(sessionId)}`, []);
 export const fetchExam = (sessionId: string, examId: string) =>
   getJson<any | null>(`/exams/${id(sessionId)}/${id(examId)}`, null);
+/** Start (or restart) the analysis of a saved test; it runs on the server in the background. */
+export async function analyseExam(sessionId: string, examId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/exams/${id(sessionId)}/${id(examId)}/analyse`, { method: "POST" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 export const fetchProfile = () => getJson<ProfileData | null>("/profile", null);
 export const fetchServerSettings = () => getJson<ServerSettings | null>("/settings", null);
 

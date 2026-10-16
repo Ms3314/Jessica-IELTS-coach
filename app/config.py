@@ -20,6 +20,10 @@ settings_store.apply_to_environ()
 
 # --- agent (main brain) ------------------------------------------------------
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+# Which model answers: "openai" (needs a key) or "ollama" (runs on this computer, no key).
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 # --- turn-taking / noise robustness (web recorder) ---------------------------
 # Each can be overridden in .env. Loudness values are RMS on a 0..1 scale.

@@ -123,6 +123,7 @@ export type ExamAction =
   | { type: "ended" } // the user hung up
   | { type: "report"; report: Report }
   | { type: "reportError"; message: string }
+  | { type: "retryReport" } // analyse again: wait for a report once more
   | { type: "reset" };
 
 const PHASE_FOR_STEP: Record<string, Phase> = {
@@ -152,6 +153,9 @@ export function examReducer(state: ExamState, action: ExamAction): ExamState {
 
     case "reportError":
       return { ...state, analysing: false, reportError: action.message };
+
+    case "retryReport":
+      return { ...state, analysing: true, reportError: null, report: null };
 
     case "event": {
       const e = action.event;

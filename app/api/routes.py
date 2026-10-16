@@ -40,9 +40,9 @@ class KeysUpdate(BaseModel):
 @router.get("/settings")
 async def get_settings():
     """Which API keys are set (masked) and which model is in use. Never the keys."""
-    from app.config import OPENAI_MODEL
+    from app.config import LLM_PROVIDER, OLLAMA_MODEL, OPENAI_MODEL
 
-    return {"keys": settings_store.status(), "model": OPENAI_MODEL, "provider": "openai"}
+    return {"keys": settings_store.status(), "model": OLLAMA_MODEL if LLM_PROVIDER == "ollama" else OPENAI_MODEL, "provider": LLM_PROVIDER}
 
 
 @router.post("/settings/keys")

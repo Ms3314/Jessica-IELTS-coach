@@ -14,14 +14,24 @@ from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from app.config import OPENAI_MODEL, PROJECT_ROOT
+from app.config import LLM_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL, OPENAI_MODEL, PROJECT_ROOT
 from .interrupts import ReplyTracker, rewrite_last_reply
 from .llmtext import _text_deltas, text_from_content  # noqa: F401 (re-exported)
 
 DB_PATH = PROJECT_ROOT / "checkpoints.db"
 
-# gpt-5.6 needs the Responses API for function tools (chat/completions rejects them)
-model = ChatOpenAI(model=OPENAI_MODEL, use_responses_api=True)
+def _build_model():
+    if LLM_PROVIDER == "ollama":
+        from langchain_ollama import ChatOllama
+
+        # reasoning=False: no hidden "thinking" pass, which would add seconds of silence
+        return ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, reasoning=False, keep_alive="30m",
+                          num_ctx=8192)   # Ollama's default (4096) would silently cut off the long exam report prompt
+    # gpt-5.6 needs the Responses API for function tools (chat/completions rejects them)
+    return ChatOpenAI(model=OPENAI_MODEL, use_responses_api=True)
+
+
+model = _build_model()
 
 search = TavilySearch(
     max_results=3,
@@ -126,7 +136,7 @@ def apply_keys(openai_api_key: str = "", tavily_api_key: str = "") -> None:
     """Use new API keys right away (the model and search tool are already built)."""
     from .llm_keys import swap_openai_credentials, swap_tavily_key
 
-    if openai_api_key:
+    if openai_api_key and LLM_PROVIDER == "openai":
         fresh = ChatOpenAI(model=OPENAI_MODEL, use_responses_api=True, api_key=openai_api_key)
         swap_openai_credentials(model, fresh)
     if tavily_api_key:

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchExam, fetchExams, type ChatMessage, type SessionMeta } from "@/lib/api";
+import { analyseExam, fetchExam, fetchExams, type ChatMessage, type SessionMeta } from "@/lib/api";
 import type { Report } from "@/lib/exam";
 
 /** A past conversation: its summary and full transcript, with a way to carry on. */
@@ -64,10 +64,13 @@ export function TestReview({
   const [examId, setExamId] = useState<string | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
+  const [analysing, setAnalysing] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [tick, setTick] = useState(0); // bump to look again
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    let timer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
       const exams = await fetchExams(sessionId);
       const latest = exams[0];
@@ -75,13 +78,26 @@ export function TestReview({
       const data = await fetchExam(sessionId, latest.exam_id);
       if (cancelled) return;
       setExamId(latest.exam_id);
-      setReport(data?.report ?? null);
+      setReport(data?.report && !data.report.error ? data.report : null);
+      setAnalysing(!!data?.analysing);
+      setFailure(data?.report?.error ?? data?.analysis_error ?? null);
       setLoading(false);
+      // a report that is still being made: look again until it lands
+      if (data?.analysing && !data.report) timer = setTimeout(() => !cancelled && setTick((n) => n + 1), 3000);
     })();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [sessionId]);
+  }, [sessionId, tick]);
+
+  const retry = async () => {
+    if (!examId) return;
+    setFailure(null);
+    setAnalysing(true);
+    await analyseExam(sessionId, examId);
+    setTick((n) => n + 1);
+  };
 
   if (loading) {
     return (
@@ -100,7 +116,9 @@ export function TestReview({
         sessionId={sessionId}
         examId={examId}
         report={report}
-        error={null}
+        error={failure}
+        analysing={analysing}
+        onRetry={retry}
         onAgain={onAgain}
         onChat={onChat}
         onOpenProfile={onOpenProfile}

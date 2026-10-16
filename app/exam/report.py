@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import re
+import threading
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -27,6 +28,16 @@ from app.exam import analysis as ea
 from app.exam.ielts import EXAMS_DIR, ExamLog
 
 logger = logging.getLogger("speakIelts.report")
+
+# Analyses running right now in this server, so a page opened later can tell
+# "still working" apart from "never started / the server restarted in between".
+_running: set[tuple[str, str]] = set()
+_running_lock = threading.Lock()
+
+
+def is_analysing(session_id: str, exam_id: str) -> bool:
+    with _running_lock:
+        return (session_id, exam_id) in _running
 
 MIN_ANSWERED_TURNS = 3
 
@@ -259,6 +270,19 @@ def run_exam_analysis(log: ExamLog, llm, events=None, store=None, **analysis_kwa
 
     `store(report, log)`, if given, saves the scores to the user's profile.
     """
+    key = (log.session_id, log.exam_id)
+    with _running_lock:
+        if key in _running:                       # already being analysed: don't start a twin
+            return {"error": "already analysing", "exam_id": log.exam_id}
+        _running.add(key)
+    try:
+        return _analyse_and_save(log, llm, events, store, **analysis_kwargs)
+    finally:
+        with _running_lock:
+            _running.discard(key)
+
+
+def _analyse_and_save(log: ExamLog, llm, events, store, **analysis_kwargs) -> dict:
     def emit(payload):
         if events is not None:
             try:
@@ -284,12 +308,18 @@ def run_exam_analysis(log: ExamLog, llm, events=None, store=None, **analysis_kwa
             except Exception:
                 logger.warning("could not save the scores to the profile", exc_info=True)
         (log.dir / "report.json").write_text(json.dumps(report, indent=2))
+        (log.dir / "analysis_error.json").unlink(missing_ok=True)
         emit({"event": "report", "report": report})
         return report
     except Exception as e:
         logger.warning("exam report failed", exc_info=True)
+        failed = {"error": str(e), "exam_id": log.exam_id}
+        try:
+            (log.dir / "analysis_error.json").write_text(json.dumps(failed, indent=2))   # a later visit can say why
+        except OSError:
+            pass
         emit({"event": "report_failed", "message": str(e)})
-        return {"error": str(e), "exam_id": log.exam_id}
+        return failed
 
 
 # --- reading saved exams (for the REST API) ------------------------------------------------------
@@ -316,4 +346,7 @@ def load_exam(session_id: str, exam_id: str, root: Path = EXAMS_DIR) -> Optional
     for name in ("analysis", "report"):
         p = d / f"{name}.json"
         out[name] = json.loads(p.read_text()) if p.exists() else None
+    err = d / "analysis_error.json"
+    out["analysis_error"] = json.loads(err.read_text()).get("error") if err.exists() and out["report"] is None else None
+    out["analysing"] = is_analysing(session_id, exam_id)
     return out

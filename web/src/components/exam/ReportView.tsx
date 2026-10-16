@@ -19,6 +19,10 @@ interface Props {
   onChat: () => void;
   /** open the progress screen (shown when the scores were saved to it) */
   onOpenProfile?: () => void;
+  /** start the analysis again (offered when it failed or never ran) */
+  onRetry?: () => void;
+  /** false when no analysis is running and no report exists (a past test that was never analysed) */
+  analysing?: boolean;
 }
 
 interface SavedTurn {
@@ -83,7 +87,17 @@ function CriterionCard({ title, c }: { title: string; c: Criterion }) {
 }
 
 /** What you see after the test: the estimated bands, feedback, and your own answers to replay. */
-export default function ReportView({ sessionId, examId, report, error: reportError, onAgain, onChat, onOpenProfile }: Props) {
+export default function ReportView({
+  sessionId,
+  examId,
+  report,
+  error: reportError,
+  onAgain,
+  onChat,
+  onOpenProfile,
+  onRetry,
+  analysing = true,
+}: Props) {
   const [turns, setTurns] = useState<SavedTurn[]>([]);
 
   // the saved answers (for replay) come from the server once the report exists
@@ -121,7 +135,32 @@ export default function ReportView({ sessionId, examId, report, error: reportErr
           <AlertTitle>The report couldn't be made</AlertTitle>
           <AlertDescription>
             <p>{reportError}</p>
-            <p>Your answers are saved. You can try analysing them again later.</p>
+            <p>Your answers are saved. You can try analysing them again.</p>
+            {onRetry && (
+              <Button size="sm" variant="outline" className="mt-1 w-fit" onClick={onRetry}>
+                Analyse again
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+        {actions}
+      </div>
+    );
+  }
+
+  if (!report && !analysing) {
+    return (
+      <div className="mx-auto grid w-full max-w-3xl gap-4">
+        <Alert variant="warning">
+          <AlertTriangle />
+          <AlertTitle>No report for this test yet</AlertTitle>
+          <AlertDescription>
+            <p>Your answers are saved, but this test was never analysed.</p>
+            {onRetry && (
+              <Button size="sm" className="mt-1 w-fit" onClick={onRetry}>
+                Analyse now
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
         {actions}
@@ -131,17 +170,19 @@ export default function ReportView({ sessionId, examId, report, error: reportErr
 
   if (!report) {
     return (
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="mx-auto grid w-full max-w-3xl gap-4">
         <Alert role="status">
           <Loader2 className="animate-spin" />
-          <AlertTitle>Analysing your test…</AlertTitle>
+          <AlertTitle>Your test is being analysed in the background</AlertTitle>
           <AlertDescription>
             <p>
-              Listening back to your answers, measuring pace and pauses, and writing your feedback. This takes about a
-              minute.
+              This takes about a minute. You don't need to wait here: start something else, and find the report later
+              in your history. It appears on this page as soon as it's ready, and your score is added to Your
+              progress.
             </p>
           </AlertDescription>
         </Alert>
+        {actions}
       </div>
     );
   }
