@@ -1,198 +1,219 @@
-# speakIelts
+# Jessica: a local voice assistant and IELTS speaking coach
 
-A local-first, low-latency voice assistant for macOS (Apple Silicon).
+Talk out loud, get an answer out loud. Jessica listens with a local speech model, thinks with
+an LLM (OpenAI, or a model running on your own computer through Ollama), and speaks back
+with a local voice. She can also run a **mock IELTS Speaking test** and give you an estimated
+band report.
 
-Talk into your mic; Jessica listens, thinks, and answers out loud — with search
-when she needs facts.
+<!--
+  IMAGE 1 (hero): a screenshot of the call screen, or a short GIF of a conversation.
+  Save it as docs/images/hero.png (or hero.gif) and keep the line below.
+-->
+![Jessica: the call screen](docs/images/hero.png)
 
-## Pipeline
+> **Status:** works well on Apple Silicon Macs. A one-command install and Windows support are
+> planned (see [Roadmap](#roadmap)). Today you set it up from source, as described below.
+
+## What it does
+
+- **Free conversation.** Speak naturally. You can interrupt her, and she remembers what you
+  actually heard.
+- **IELTS mock test.** Short (about 6 minutes) or full (about 14 minutes). The examiner's lines
+  and the cue card are written by the model each time, with a countdown for every part.
+- **Report and progress.** After a test you get estimated bands for fluency, vocabulary,
+  grammar and pronunciation, with quotes from your answers and what to practise first. Scores
+  are saved to **Your progress**, which charts them over time.
+- **History.** Every conversation and test is saved. Reopen it, rename it, delete it, or listen
+  back to your own answers.
+- **Private by default.** Speech recognition, the voice and your recordings stay on your
+  computer. The LLM can run there too.
+
+<!--
+  IMAGE 2: the IELTS screen with the countdown timer and the cue card.
+  Save as docs/images/ielts-test.png
+-->
+![The IELTS mock test with timer and cue card](docs/images/ielts-test.png)
+
+<!--
+  IMAGE 3: a finished report (overall band, the four criteria).
+  Save as docs/images/report.png
+-->
+![An estimated band report](docs/images/report.png)
+
+<!--
+  IMAGE 4: the "Your progress" page with the chart.
+  Save as docs/images/progress.png
+-->
+![Your progress over time](docs/images/progress.png)
+
+<!--
+  DEMO VIDEO: upload the demo to YouTube (or drag the file into a GitHub issue to get a
+  link) and replace VIDEO_URL below. The thumbnail can be docs/images/hero.png.
+-->
+**Demo:** [Watch a 3-minute mock test](VIDEO_URL)
+
+## How it works
 
 ```
-mic ──> Whisper large-v3-turbo (local, MLX)     # speech -> text
-     ─> agent (OpenAI gpt-5.6-luna + Tavily)    # reasoning + web search, streamed
-     ─> Kokoro TTS (local)                       # sentence-by-sentence streaming playback
+mic ──> Silero VAD (is someone talking?)        # decides when you start and stop
+     ─> Whisper large-v3-turbo (local, MLX)     # speech -> text
+     ─> agent: OpenAI or Ollama (+ Tavily)      # reasoning + optional web search, streamed
+     ─> Kokoro TTS (local)                      # speaks each sentence as soon as it is ready
 ```
 
 Latency tricks:
-- Records only while you talk (Silero VAD endpointing), trims dead air
-- Agent reply is **streamed**: each finished sentence is spoken while the rest
-  is still being generated
-- One persistent mic + one persistent speaker stream (repeated PortAudio
-  open/close was wedging macOS CoreAudio)
-- Whisper is warm-loaded at startup, audio goes straight to it as a numpy
-  array (no temp WAV, no ffmpeg)
+- Records only while you talk (voice-activity detection) and trims dead air.
+- The reply is **streamed**: each finished sentence is spoken while the rest is still being written.
+- One persistent mic stream and one speaker stream. Opening and closing them repeatedly was
+  wedging macOS CoreAudio.
+- Whisper and the voice are loaded at startup, and audio goes straight to Whisper as an array
+  (no temp files, no ffmpeg).
 
-## Project structure
+Noise handling: speech must be clearly louder than the room's background level to count, and
+very short blips (a door closing, a pen drop) are ignored.
 
-**[ARCHITECTURE.md](ARCHITECTURE.md) is the code map**: diagrams of how the
-pieces connect, what every file does, and a "where do I change X" table.
+<!--
+  IMAGE 5 (optional): an architecture or latency diagram. Save as docs/images/architecture.png
+-->
+![Architecture](docs/images/architecture.png)
 
-```
-main.py                  # terminal entry point
-server.py                # web entry point (builds the FastAPI app)
-app/
-  ├── config.py          # loads .env + saved settings
-  ├── settings_store.py  # API keys entered in Settings
-  ├── io.py              # pluggable AudioSource / Sink / EventHandler
-  ├── api/               # REST routes (routes.py) and the /ws call socket (voice.py)
-  ├── chat/              # free conversation: Session loop, greeting, sessions, history
-  ├── exam/              # IELTS mock test: structure, examiner, loop, analysis, report, profile
-  ├── speech/            # VAD, streaming recorder, Whisper (asr), Kokoro (tts)
-  └── llm/               # the agent + its memory, interruption handling, key swapping
-web/                     # React + Vite UI
-  └── src/
-      ├── components/    # views/ layout/ call/ exam/ ui/
-      └── lib/           # voice/ (WebSocket + audio engine), audio/ (visualizer), pure helpers
-tests/                   # one script per backend module (no mic, no API keys)
-web/tests/               # node:test for the pure frontend helpers
-.env                     # API keys (not committed)
-requirements.txt         # pinned dependencies for this machine
-TODO.md                  # design log: every change and WHY it was made
-```
+## Requirements
 
-## IELTS mock test (backend)
+| | Needed | Notes |
+|---|---|---|
+| Computer | Apple Silicon Mac (M1 or newer) | tested on an M4 only |
+| Memory | 16 GB recommended | a local 4B LLM uses about 5 GB on top of the speech models; with OpenAI as the LLM, less may work (not tested) |
+| Disk | a few GB for the speech models, plus about 4 GB for a local LLM | exact sizes not measured yet |
+| Software | Python 3.11, Node 22+, a microphone | plus Ollama if you want the local LLM |
 
-Click **New IELTS test** in the sidebar and choose a **Short (about 6 min)** or **Full
-(about 14 min)** test. Jessica runs the real
-structure — intro, Part 1, Part 2 (cue card, 1 min prep, up to 2 min
-talk), Part 3 — without commenting on your answers, with a countdown for each
-part. Every answer is saved as audio under `data/exams/<session>/<exam>/`; when
-the test ends (or you quit after 3+ answers) the recordings are re-transcribed
-with word timestamps and scored into an estimated report. You record each answer yourself (Record, then Stop, or the Space key); a
-part's countdown is a hard limit, so a recording still running when it reaches
-zero is cut off and the test moves on. When the test ends it goes straight to
-the analysis, and the scores are saved to **Your progress** (`data/profile.db`),
-which charts your bands over time. Past tests and conversations are listed in the
-History sidebar.
-
-```
-app/exam/ielts.py     # the exam's fixed structure + the saved record
-app/exam/examiner.py  # fixed exam lines, prompts, cue card, question generation
-app/exam/engine.py    # ExamSession: the examiner's loop
-app/exam/analysis.py  # fluency / vocabulary / grammar / pitch / word-confidence numbers
-app/exam/report.py    # second-pass transcription + band estimates -> report.json
-```
-
-REST: `GET /exams/{session}` · `GET /exams/{session}/{exam}` (turns, analysis,
-report) · `GET /exams/{session}/{exam}/audio/{turnNN.wav}` ·
-`POST /exams/{session}/{exam}/analyse` (re-run). Deleting a session deletes its
-recordings. Bands are practice **estimates**; pronunciation is inferred from
-indicators (word confidence, pitch variation), not assessed by ear.
-
-## Settings and API keys
-
-Add your OpenAI key (and optionally a Tavily key for web search) in the app's
-**Settings**. Keys are saved in `data/settings.json` (readable only by you),
-used immediately, and never sent back to the browser. A `.env` file still
-works as a fallback. The server listens on `127.0.0.1` only; set `HOST=0.0.0.0`
-to reach it from another device.
+Only tested on an M4 MacBook with 16 GB so far. Windows and Linux are not supported yet,
+because the speech-to-text backend (MLX) is Apple-only.
 
 ## Setup
 
 ```bash
+git clone https://github.com/Ms3314/Jessica-IELTS-coach.git
+cd Jessica-IELTS-coach
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-brew install ffmpeg        # only needed if you feed audio files to Whisper
 ```
 
-`.env` at the project root:
+Then start it:
+
+```bash
+./start.sh
+```
+
+This builds the web UI the first time, then serves everything on <http://localhost:8080>. Open
+it, allow microphone access, and press the mic button. The first launch downloads the Whisper
+and Kokoro models, which takes a few minutes.
+
+### Choose the LLM
+
+**Option A: OpenAI (the default).** Open **Settings** in the app and paste your OpenAI key. A
+Tavily key is optional and only adds web search to normal chat. Keys are saved in
+`data/settings.json` (readable only by you) and are never sent back to the browser. A `.env`
+file also works:
 
 ```
-OPENAI_API_KEY=...        # agent brain
-TAVILY_API_KEY=...        # web search for the agent
-# optional overrides:
+OPENAI_API_KEY=...
+TAVILY_API_KEY=...        # optional
 # OPENAI_MODEL=gpt-5.6-luna
 ```
 
-## Run
-
-### Terminal (original)
+**Option B: a local model with Ollama (no key, no cloud).**
 
 ```bash
-python main.py
+ollama pull qwen3.5:4b
 ```
 
-Say **"goodbye"** (the whole utterance) to quit. First launch downloads the
-Kokoro + Whisper models and takes a few seconds; after that, the Whisper
-weights warm-load at startup.
+then add this to `.env` and restart:
 
-### Web UI (browser audio + voice visual)
+```
+LLM_PROVIDER=ollama
+# OLLAMA_MODEL=qwen3.5:4b
+```
 
-The same engine also runs behind a FastAPI + WebSocket server. The browser
-captures the mic and plays the reply; Whisper, the agent, and Kokoro all stay
-on the Mac.
+Small local models are good for conversation (replies start in well under a second once
+loaded) but weaker at the structured parts. In my tests a 4B model wrote poor cue cards, and
+its band scoring is untested. If you care about the report quality, use OpenAI for now.
+
+## The IELTS mock test
+
+Click **New IELTS test** and choose **Short** or **Full**. The real structure is followed: an
+introduction, Part 1 (familiar topics), Part 2 (a cue card, preparation time, then a long
+talk), and Part 3 (a discussion). The examiner never comments on your answers.
+
+- You record each answer yourself: **Record**, then **Stop** (or press Space).
+- Each part has a countdown that is a hard limit: a recording still running at zero is cut off
+  and the test moves on.
+- When the test ends it goes straight to the analysis, which runs in the background. You can
+  start something else and open the report when it is ready.
+- Every answer is saved as audio under `data/exams/`, re-transcribed with word timings, and
+  analysed for pace, pauses, vocabulary, grammar and pitch before the report is written.
+
+The bands are practice **estimates** from an AI, not an official score. Pronunciation is
+inferred from indicators (word confidence, pitch variation) rather than judged by ear.
+
+## Project structure
+
+**[ARCHITECTURE.md](ARCHITECTURE.md)** is the full code map, with diagrams and a "where do I
+change X" table.
+
+```
+main.py                  # terminal entry point
+server.py                # web entry point (FastAPI)
+app/
+  ├── config.py          # settings from .env and the Settings screen
+  ├── io.py              # pluggable audio source / sink / event handler
+  ├── api/               # REST routes and the /ws call socket
+  ├── chat/              # free conversation: loop, greeting, sessions, history
+  ├── exam/              # IELTS: structure, examiner, loop, analysis, report, profile
+  ├── speech/            # VAD, recorder, Whisper (asr), Kokoro (tts)
+  └── llm/               # the agent, its memory, interruption handling
+web/                     # React + Vite UI (shadcn components)
+tests/                   # one script per backend module (no mic, no API keys)
+web/tests/               # frontend helper tests
+```
+
+## Development
 
 ```bash
-# 1. build the React UI once (only needed the first time / after frontend edits)
-cd web
-npm install
-npm run build      # outputs web/dist
-cd ..
-
-# 2. start the server (serves the UI + WebSocket on :8080)
-python -m fastapi dev server.py --port 8080
+python -m fastapi dev server.py --port 8080   # auto-reloads on backend edits
+cd web && npm run dev                          # UI hot-reload on :5173 (proxies /ws to :8080)
 ```
 
-`python -m fastapi dev` is the standard way to start — it auto-reloads on
-backend edits and serves **both** the built UI and the WebSocket API on the
-single port 8080, so no separate frontend server is needed to use the app.
-(Use `python -m fastapi …` rather than bare `fastapi` so the venv's CLI is used.)
+Pass `server.py` explicitly. The repository also has `main.py` (the terminal script), and the
+FastAPI CLI would find that first and fail with "Could not find FastAPI app".
 
-### Why `server.py` must be named explicitly
+The server listens on `127.0.0.1` only. Set `HOST=0.0.0.0` to reach it from another device.
 
-This repo has two top-level entry files: `main.py` (the terminal script) and
-`server.py` (the FastAPI app). The FastAPI CLI auto-discovers a file to run
-when you omit it, and its default search order finds `main.py` **first** —
-which is not a FastAPI app. That produces:
-
-```
-Could not find FastAPI app in module, try using --app
-```
-
-To prevent this, `pyproject.toml` pins the entrypoint to `server:app`, so the
-bare command also works:
+Tests need no microphone, speakers or API keys:
 
 ```bash
-python -m fastapi dev          # reads [tool.fastapi] entrypoint from pyproject.toml
-python -m fastapi dev server.py --port 8080   # explicit, always works
+for t in tests/test_*.py; do python "$t" || break; done   # backend
+node --test web/tests/                                     # frontend (Node 22+)
 ```
 
-Do **not** pass `--app server:app` together with the file path — the FastAPI
-CLI's app discovery misbehaves in that combination; auto-detection is enough.
+Note: the dev server restarts when a file changes, which also stops any analysis that is
+running at that moment. Re-run it from the test's page with **Analyse again**.
 
-One-command convenience: `./start.sh` (builds the UI if missing, then starts).
+## Roadmap
 
-Open <http://localhost:8080>, then tap the **mic button** to grant mic access
-and start the call. Jessica opens with a question: a random starter for a new
-session, or a follow-up based on the previous conversation summary for a
-returning one.
+- [ ] One-command install (`pip` or a shell installer that also downloads the models and Ollama)
+- [ ] Windows support (needs a different speech-to-text backend)
+- [ ] Re-run unfinished analyses automatically when the server restarts
+- [ ] A pronunciation check that listens to the sounds, not just confidence scores
+- [ ] Test the local LLM against the report and cue-card tasks, and pick a recommended model
 
-The blob glows in your chosen session colour and follows the live audio; your
-last sentence appears as a simple italic caption below it. Long answers don't
-squash the visual.
+## Licence
 
-The **left sidebar** lists your sessions. You can rename a session, pick its
-colour, delete it, or ask for a one-paragraph summary. A **mic-mute** button
-lets you silence your own microphone without ending the call — Jessica's voice
-keeps playing normally.
+To be decided. Some dependencies are GPL, which affects what this project can be released under.
 
-Conversation memory lives in **SQLite** (`checkpoints.db`), one thread per
-voice session. Quit/Start and page reloads resume the same memory; **New
-session** starts a fresh thread.
+## Credits
 
-For backend-only no-reload: `python -m uvicorn server:app --port 8080`.
-For frontend hot-reload development: `cd web && npm run dev` (Vite on :5173,
-which proxies `/ws` to the Python server on :8080).
-
-## Testing
-
-```bash
-for t in tests/test_*.py; do python "$t" || break; done   # backend, one script per module
-```
-
-```bash
-node --test web/tests/                                     # frontend helpers (Node 22+)
-```
-
-Headless tests use a fake audio stream — no microphone, no speakers, no API keys.
+[Whisper](https://github.com/openai/whisper) and [MLX](https://github.com/ml-explore/mlx),
+[Kokoro](https://github.com/hexgrad/kokoro), [Silero VAD](https://github.com/snakers4/silero-vad),
+[LangChain](https://github.com/langchain-ai/langchain), [Ollama](https://ollama.com),
+[FastAPI](https://fastapi.tiangolo.com) and [shadcn/ui](https://ui.shadcn.com).
