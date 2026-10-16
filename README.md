@@ -9,7 +9,9 @@ band report.
   IMAGE 1 (hero): a screenshot of the call screen, or a short GIF of a conversation.
   Save it as docs/images/hero.png (or hero.gif) and keep the line below.
 -->
-![Jessica: the call screen](docs/images/hero.png)
+
+
+
 
 > **Status:** works well on Apple Silicon Macs. A one-command install and Windows support are
 > planned (see [Roadmap](#roadmap)). Today you set it up from source, as described below.
@@ -32,26 +34,25 @@ band report.
   IMAGE 2: the IELTS screen with the countdown timer and the cue card.
   Save as docs/images/ielts-test.png
 -->
-![The IELTS mock test with timer and cue card](docs/images/ielts-test.png)
+<img width="1600" height="912" alt="WhatsApp Image 2026-10-16 at 7 23 11 PM" src="https://github.com/user-attachments/assets/0844c93f-ebbf-4f63-a861-2b94a73dc987" />
 
 <!--
   IMAGE 3: a finished report (overall band, the four criteria).
   Save as docs/images/report.png
 -->
-![An estimated band report](docs/images/report.png)
+<img width="1440" height="824" alt="download (15)" src="https://github.com/user-attachments/assets/3ae66ae2-4e02-4994-a4fe-9272629b95b2" />
 
 <!--
   IMAGE 4: the "Your progress" page with the chart.
   Save as docs/images/progress.png
 -->
-![Your progress over time](docs/images/progress.png)
+<img width="1600" height="913" alt="WhatsApp Image 2026-10-16 at 7 29 51 PM" src="https://github.com/user-attachments/assets/e62e7a4a-4cf7-4116-ad0d-713fbf6c033a" />
+
 
 <!--
   DEMO VIDEO: upload the demo to YouTube (or drag the file into a GitHub issue to get a
   link) and replace VIDEO_URL below. The thumbnail can be docs/images/hero.png.
 -->
-**Demo:** [Watch a 3-minute mock test](VIDEO_URL)
-
 ## How it works
 
 ```
@@ -75,8 +76,6 @@ very short blips (a door closing, a pen drop) are ignored.
 <!--
   IMAGE 5 (optional): an architecture or latency diagram. Save as docs/images/architecture.png
 -->
-![Architecture](docs/images/architecture.png)
-
 ## Requirements
 
 | | Needed | Notes |
@@ -198,14 +197,6 @@ node --test web/tests/                                     # frontend (Node 22+)
 
 Note: the dev server restarts when a file changes, which also stops any analysis that is
 running at that moment. Re-run it from the test's page with **Analyse again**.
-
-## Roadmap
-
-- [ ] One-command install (`pip` or a shell installer that also downloads the models and Ollama)
-- [ ] Windows support (needs a different speech-to-text backend)
-- [ ] Re-run unfinished analyses automatically when the server restarts
-- [ ] A pronunciation check that listens to the sounds, not just confidence scores
-- [ ] Test the local LLM against the report and cue-card tasks, and pick a recommended model
 
 ## Licence
 
