@@ -37,9 +37,11 @@ class KeysUpdate(BaseModel):
     tavily_api_key: str | None = None
 
 
+# the setting contains the methood in which i can add openai api keys 
 @router.get("/settings")
 async def get_settings():
     """Which API keys are set (masked) and which model is in use. Never the keys."""
+    # we are getting the provider in this route
     from app.config import LLM_PROVIDER, OLLAMA_MODEL, OPENAI_MODEL
 
     return {"keys": settings_store.status(), "model": OLLAMA_MODEL if LLM_PROVIDER == "ollama" else OPENAI_MODEL, "provider": LLM_PROVIDER}
@@ -48,6 +50,14 @@ async def get_settings():
 @router.post("/settings/keys")
 async def save_keys(body: KeysUpdate):
     """Save API keys entered in Settings and start using them immediately."""
+    # model_dump is a way to convert pydantic objects into regular python objects
+    
+    # explanation of model_dump().items()
+
+    # 1. model_dump(): Turns your Pydantic model into a standard Python dictionary (e.g., {'name': 'Alice', 'age': 30}).
+    # 2. .items(): Extracts the keys and values into a sequence of tuples (e.g., [('name', 'Alice'), ('age', 30)]
+    
+    
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     openai_key = (updates.get("openai_api_key") or "").strip()
     note = None

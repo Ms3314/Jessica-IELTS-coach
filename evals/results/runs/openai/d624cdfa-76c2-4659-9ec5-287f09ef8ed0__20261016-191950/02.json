@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "bands": {
+    "fluency_coherence": 7.0,
+    "lexical_resource": 6.0,
+    "grammatical_range_accuracy": 6.0,
+    "pronunciation": 7.0,
+    "overall": 6.5
+  },
+  "quotes": {
+    "fluency_coherence": {
+      "kept": 3,
+      "dropped": 0,
+      "rejected": []
+    },
+    "lexical_resource": {
+      "kept": 4,
+      "dropped": 0,
+      "rejected": []
+    },
+    "grammatical_range_accuracy": {
+      "kept": 4,
+      "dropped": 0,
+      "rejected": []
+    },
+    "pronunciation": {
+      "kept": 3,
+      "dropped": 0,
+      "rejected": []
+    }
+  },
+  "seconds": 20.64,
+  "exam": "d624cdfa-76c2-4659-9ec5-287f09ef8ed0/20261016-191950",
+  "provider": "openai",
+  "model": "gpt-5.6-luna",
+  "run": 2
+}

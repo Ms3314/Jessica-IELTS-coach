@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "bands": {
+    "fluency_coherence": 7.0,
+    "lexical_resource": 7.0,
+    "grammatical_range_accuracy": 7.0,
+    "pronunciation": 7.0,
+    "overall": 7.0
+  },
+  "quotes": {
+    "fluency_coherence": {
+      "kept": 1,
+      "dropped": 1
+    },
+    "lexical_resource": {
+      "kept": 1,
+      "dropped": 2
+    },
+    "grammatical_range_accuracy": {
+      "kept": 0,
+      "dropped": 2
+    },
+    "pronunciation": {
+      "kept": 0,
+      "dropped": 1
+    }
+  },
+  "seconds": 122.17,
+  "exam": "d624cdfa-76c2-4659-9ec5-287f09ef8ed0/20261016-191950",
+  "provider": "ollama",
+  "model": "qwen3.5:4b",
+  "run": 1
+}
